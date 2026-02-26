@@ -4,5 +4,17 @@
   "app.ipc_status": "IPC Status",
   "nav.label": "Main navigation",
   "nav.dictation": "Dictation",
-  "nav.settings": "Settings"
+  "nav.settings": "Settings",
+  "record.idle": "Click to Record",
+  "record.recording": "Recording...",
+  "record.processing": "Processing...",
+  "record.stop": "Click to Stop",
+  "record.timer": "Recording time",
+  "transcription.empty": "Record something to see it transcribed.",
+  "transcription.label": "Transcription result",
+  "transcription.duration": "Transcription took {duration}ms",
+  "transcription.error": "Transcription error",
+  "error.no_mic": "No microphone available.",
+  "error.capture_failed": "Failed to start recording.",
+  "error.no_model": "No model loaded. Load a Whisper model first."
 }

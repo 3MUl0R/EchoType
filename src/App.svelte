@@ -1,18 +1,21 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import { t } from "$lib/i18n/index.js";
+  import RecordButton from "$lib/components/RecordButton.svelte";
+  import TranscriptionDisplay from "$lib/components/TranscriptionDisplay.svelte";
 
-  let ipcResult = $state("");
+  let transcriptionText = $state("");
+  let transcriptionDuration = $state<number | undefined>(undefined);
+  let errorMessage = $state("");
 
-  async function testIpc() {
-    try {
-      ipcResult = await invoke<string>("ping");
-    } catch (e) {
-      ipcResult = `Error: ${e}`;
-    }
+  function handleTranscription(text: string, durationMs: number) {
+    transcriptionText = text;
+    transcriptionDuration = durationMs;
+    errorMessage = "";
   }
 
-  testIpc();
+  function handleError(error: string) {
+    errorMessage = error;
+  }
 </script>
 
 <div class="dark min-h-screen bg-bg-primary text-text-primary">
@@ -23,24 +26,36 @@
   <nav class="border-b border-border px-6 py-2" aria-label={t("nav.label")}>
     <ul class="flex gap-4">
       <li>
-        <button class="text-accent hover:text-accent-hover focus:outline-none focus:ring-2 focus:ring-accent rounded px-2 py-1">
+        <button
+          class="rounded px-2 py-1 text-accent hover:text-accent-hover focus:outline-none focus:ring-2 focus:ring-accent"
+        >
           {t("nav.dictation")}
         </button>
       </li>
       <li>
-        <button class="text-text-secondary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent rounded px-2 py-1">
+        <button
+          class="rounded px-2 py-1 text-text-secondary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+        >
           {t("nav.settings")}
         </button>
       </li>
     </ul>
   </nav>
 
-  <main class="px-6 py-8">
-    <p class="text-text-secondary mb-4">{t("app.description")}</p>
-    {#if ipcResult}
-      <p class="text-sm text-text-muted">
-        {t("app.ipc_status")}: <span class="text-status-success">{ipcResult}</span>
-      </p>
-    {/if}
+  <main class="mx-auto max-w-2xl px-6 py-8">
+    <p class="mb-8 text-center text-text-secondary">{t("app.description")}</p>
+
+    <div class="mb-8 flex justify-center">
+      <RecordButton
+        onTranscription={handleTranscription}
+        onError={handleError}
+      />
+    </div>
+
+    <TranscriptionDisplay
+      text={transcriptionText}
+      durationMs={transcriptionDuration}
+      error={errorMessage}
+    />
   </main>
 </div>

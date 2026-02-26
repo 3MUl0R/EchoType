@@ -25,4 +25,25 @@ describe("App", () => {
     expect(nav).toBeTruthy();
     expect(nav.getAttribute("aria-label")).toBe("Main navigation");
   });
+
+  it("renders record button", () => {
+    render(App);
+    expect(screen.getByText("Click to Record")).toBeTruthy();
+  });
+
+  it("renders empty transcription state", () => {
+    render(App);
+    expect(
+      screen.getByText("Record something to see it transcribed."),
+    ).toBeTruthy();
+  });
+
+  it("has accessible transcription region", () => {
+    render(App);
+    const section = screen.getByRole("region", {
+      name: "Transcription result",
+    });
+    expect(section).toBeTruthy();
+    expect(section.getAttribute("aria-live")).toBe("polite");
+  });
 });

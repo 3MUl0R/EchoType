@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 
 /// A `dlerror` error.
 pub struct DlDescription(pub(crate) CString);
@@ -6,6 +6,12 @@ pub struct DlDescription(pub(crate) CString);
 impl std::fmt::Debug for DlDescription {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl From<&CStr> for DlDescription {
+    fn from(value: &CStr) -> Self {
+        Self(value.into())
     }
 }
 
@@ -25,49 +31,49 @@ pub enum Error {
     /// The `dlopen` call failed.
     DlOpen {
         /// The source error.
-        desc: DlDescription
+        desc: DlDescription,
     },
     /// The `dlopen` call failed and system did not report an error.
     DlOpenUnknown,
     /// The `dlsym` call failed.
     DlSym {
         /// The source error.
-        desc: DlDescription
+        desc: DlDescription,
     },
     /// The `dlsym` call failed and system did not report an error.
     DlSymUnknown,
     /// The `dlclose` call failed.
     DlClose {
         /// The source error.
-        desc: DlDescription
+        desc: DlDescription,
     },
     /// The `dlclose` call failed and system did not report an error.
     DlCloseUnknown,
     /// The `LoadLibraryW` call failed.
     LoadLibraryExW {
         /// The source error.
-        source: WindowsError
+        source: WindowsError,
     },
     /// The `LoadLibraryW` call failed and system did not report an error.
     LoadLibraryExWUnknown,
     /// The `GetModuleHandleExW` call failed.
     GetModuleHandleExW {
         /// The source error.
-        source: WindowsError
+        source: WindowsError,
     },
     /// The `GetModuleHandleExW` call failed and system did not report an error.
     GetModuleHandleExWUnknown,
     /// The `GetProcAddress` call failed.
     GetProcAddress {
         /// The source error.
-        source: WindowsError
+        source: WindowsError,
     },
     /// The `GetProcAddressUnknown` call failed and system did not report an error.
     GetProcAddressUnknown,
     /// The `FreeLibrary` call failed.
     FreeLibrary {
         /// The source error.
-        source: WindowsError
+        source: WindowsError,
     },
     /// The `FreeLibrary` call failed and system did not report an error.
     FreeLibraryUnknown,
@@ -76,12 +82,12 @@ pub enum Error {
     /// Could not create a new CString.
     CreateCString {
         /// The source error.
-        source: std::ffi::NulError
+        source: std::ffi::NulError,
     },
     /// Could not create a new CString from bytes with trailing null.
     CreateCStringWithTrailing {
         /// The source error.
-        source: std::ffi::FromBytesWithNulError
+        source: std::ffi::FromBytesWithNulError,
     },
 }
 
@@ -92,6 +98,7 @@ impl std::error::Error for Error {
             CreateCString { ref source } => Some(source),
             CreateCStringWithTrailing { ref source } => Some(source),
             LoadLibraryExW { ref source } => Some(&source.0),
+            GetModuleHandleExW { ref source } => Some(&source.0),
             GetProcAddress { ref source } => Some(&source.0),
             FreeLibrary { ref source } => Some(&source.0),
             _ => None,
@@ -110,20 +117,29 @@ impl std::fmt::Display for Error {
             DlClose { ref desc } => write!(f, "{}", desc.0.to_string_lossy()),
             DlCloseUnknown => write!(f, "dlclose failed, but system did not report the error"),
             LoadLibraryExW { .. } => write!(f, "LoadLibraryExW failed"),
-            LoadLibraryExWUnknown =>
-                write!(f, "LoadLibraryExW failed, but system did not report the error"),
+            LoadLibraryExWUnknown => write!(
+                f,
+                "LoadLibraryExW failed, but system did not report the error"
+            ),
             GetModuleHandleExW { .. } => write!(f, "GetModuleHandleExW failed"),
-            GetModuleHandleExWUnknown =>
-                write!(f, "GetModuleHandleExWUnknown failed, but system did not report the error"),
+            GetModuleHandleExWUnknown => write!(
+                f,
+                "GetModuleHandleExWUnknown failed, but system did not report the error"
+            ),
             GetProcAddress { .. } => write!(f, "GetProcAddress failed"),
-            GetProcAddressUnknown =>
-                write!(f, "GetProcAddress failed, but system did not report the error"),
+            GetProcAddressUnknown => write!(
+                f,
+                "GetProcAddress failed, but system did not report the error"
+            ),
             FreeLibrary { .. } => write!(f, "FreeLibrary failed"),
-            FreeLibraryUnknown =>
-                write!(f, "FreeLibrary failed, but system did not report the error"),
+            FreeLibraryUnknown => {
+                write!(f, "FreeLibrary failed, but system did not report the error")
+            }
             CreateCString { .. } => write!(f, "could not create a C string from bytes"),
-            CreateCStringWithTrailing { .. } =>
-                write!(f, "could not create a C string from bytes with trailing null"),
+            CreateCStringWithTrailing { .. } => write!(
+                f,
+                "could not create a C string from bytes with trailing null"
+            ),
             IncompatibleSize => write!(f, "requested type cannot possibly work"),
         }
     }

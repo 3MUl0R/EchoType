@@ -1,0 +1,33 @@
+name: Rust
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Install cargo-c
+      env:
+        LINK: https://github.com/lu-zero/cargo-c/releases/download
+        CARGO_C_VERSION: 0.10.16
+      run: |
+        curl -L "$LINK/v$CARGO_C_VERSION/cargo-c-x86_64-unknown-linux-musl.tar.gz" |
+        tar xz -C $HOME/.cargo/bin
+    - name: Smoke test C API
+      run: |
+          cargo cbuild
+          gcc -I target/x86_64-unknown-linux-gnu/debug/ -o rnnoise_demo test_data/rnnoise_demo.c target/x86_64-unknown-linux-gnu/debug/libnnnoiseless.a -lm -lpthread -ldl
+          cargo run --bin nnnoiseless test_data/testing.raw out_rust.raw
+          ./rnnoise_demo test_data/testing.raw out_c.raw
+          diff out_rust.raw out_c.raw

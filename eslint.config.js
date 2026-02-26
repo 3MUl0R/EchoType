@@ -35,9 +35,22 @@ export default [
     files: ["**/*.svelte"],
     languageOptions: {
       parser: svelteParser,
+      globals: {
+        ...globals.browser,
+      },
       parserOptions: {
         parser: tsParser,
       },
+    },
+    plugins: {
+      "@typescript-eslint": ts,
+    },
+    rules: {
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
   {
