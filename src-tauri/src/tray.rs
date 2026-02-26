@@ -100,6 +100,7 @@ fn update_icon(app: &AppHandle, state: &DictationState) -> Result<(), String> {
         DictationState::Idle => "EchoType",
         DictationState::Recording => "EchoType — Recording",
         DictationState::Transcribing => "EchoType — Transcribing",
+        DictationState::Editing => "EchoType — Editing",
         DictationState::Inserting => "EchoType — Inserting",
     };
     tray.set_tooltip(Some(tooltip))
@@ -114,6 +115,7 @@ fn make_icon(state: &DictationState) -> Image<'static> {
         DictationState::Idle => (128, 128, 128),        // Gray
         DictationState::Recording => (220, 50, 50),     // Red
         DictationState::Transcribing => (50, 130, 220), // Blue
+        DictationState::Editing => (220, 180, 50),      // Yellow
         DictationState::Inserting => (50, 180, 80),     // Green
     };
 
@@ -204,6 +206,7 @@ mod tests {
             DictationState::Idle,
             DictationState::Recording,
             DictationState::Transcribing,
+            DictationState::Editing,
             DictationState::Inserting,
         ] {
             let _ = make_icon(&state); // Should not panic

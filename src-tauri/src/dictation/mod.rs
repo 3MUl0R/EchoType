@@ -1,3 +1,5 @@
+pub mod streaming;
+
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -23,6 +25,7 @@ pub enum DictationState {
     Idle,
     Recording,
     Transcribing,
+    Editing,
     Inserting,
 }
 
@@ -33,6 +36,19 @@ pub struct DictationEvent {
     pub text: Option<String>,
     pub error: Option<String>,
     pub latency_ms: Option<u64>,
+}
+
+/// State stored when the edit buffer window is open.
+pub struct PendingEdit {
+    pub text: String,
+    pub focus_target: Option<focus::FocusTarget>,
+    pub selection: output::selection::SelectionState,
+    pub output_method: output::OutputMethod,
+    pub auto_submit_enabled: bool,
+    pub auto_submit_key: output::AutoSubmitKey,
+    pub auto_submit_delay_ms: u64,
+    pub audio: AudioBuffer,
+    pub release_time: Instant,
 }
 
 /// Manages the dictation lifecycle.
@@ -72,8 +88,21 @@ impl DictationManager {
         // Start audio capture (blocking I/O, but short-lived)
         let app_state: tauri::State<'_, AppState> = app.state();
 
-        // Read mic and feedback settings together
-        let (selected_device, auto_fallback, fb_enabled, fb_volume) = {
+        // Detect selection in the target app (blocking, ~50-100ms)
+        let selection = tokio::task::spawn_blocking(output::selection::detect_selection)
+            .await
+            .unwrap_or(output::selection::SelectionState::Unknown);
+        *app_state.selection_state.lock().await = selection;
+
+        // Read mic, feedback, and streaming settings together
+        let (
+            selected_device,
+            auto_fallback,
+            fb_enabled,
+            fb_volume,
+            streaming_enabled,
+            suppression_level,
+        ) = {
             let conn = app_state.db.lock().await;
             let device = crate::settings::get_typed::<String>(
                 &conn,
@@ -93,7 +122,22 @@ impl DictationManager {
                 crate::settings::keys::AUDIO_FEEDBACK_VOLUME,
             )
             .unwrap_or(0.5);
-            (device, fallback, enabled, volume)
+            let stream =
+                crate::settings::get_typed::<bool>(&conn, crate::settings::keys::STREAMING_ENABLED)
+                    .unwrap_or(true);
+            let level_str = crate::settings::get_typed::<String>(
+                &conn,
+                crate::settings::keys::NOISE_SUPPRESSION_LEVEL,
+            )
+            .unwrap_or_else(|_| "moderate".to_string());
+            (
+                device,
+                fallback,
+                enabled,
+                volume,
+                stream,
+                SuppressionLevel::from_str(&level_str),
+            )
         };
 
         // Play start chime BEFORE opening mic to avoid bleeding into capture
@@ -119,6 +163,17 @@ impl DictationManager {
                         latency_ms: None,
                     },
                 );
+
+                // Start streaming if enabled
+                if streaming_enabled {
+                    let handle = streaming::start_streaming(
+                        app.clone(),
+                        app_state.capture_session.clone(),
+                        app_state.engine_manager.clone(),
+                        suppression_level,
+                    );
+                    *app_state.streaming_handle.lock().await = Some(handle);
+                }
 
                 info!("Dictation recording started");
             }
@@ -152,8 +207,13 @@ impl DictationManager {
             }
         }
 
-        // Take the capture session
+        // Cancel streaming
         let app_state: tauri::State<'_, AppState> = app.state();
+        if let Some(handle) = app_state.streaming_handle.lock().await.take() {
+            handle.cancel();
+        }
+
+        // Take the capture session
         let session = {
             let mut guard = app_state.capture_session.lock().await;
             guard.take()
@@ -221,12 +281,24 @@ impl DictationManager {
         let app_handle = app.clone();
         let engine_manager = app_state.engine_manager.clone();
         let focus_target = app_state.focus_target.lock().await.clone();
+        let selection = app_state.selection_state.lock().await.clone();
         let db = app_state.db.clone();
         let audio_for_history = buffer.clone();
 
+        let pending_edit_arc = app_state.pending_edit.clone();
+
         tokio::spawn(async move {
             // Read settings before transcription (async-safe)
-            let (suppression_level, output_method, dictation_mode, auto_punctuate) = {
+            let (
+                suppression_level,
+                output_method,
+                dictation_mode,
+                auto_punctuate,
+                auto_submit_enabled,
+                auto_submit_key,
+                auto_submit_delay_ms,
+                edit_buffer_enabled,
+            ) = {
                 let conn = db.lock().await;
                 let level_str = crate::settings::get_typed::<String>(
                     &conn,
@@ -248,11 +320,35 @@ impl DictationManager {
                     crate::settings::keys::AUTO_PUNCTUATE,
                 )
                 .unwrap_or(true);
+                let submit_enabled = crate::settings::get_typed::<bool>(
+                    &conn,
+                    crate::settings::keys::AUTO_SUBMIT_ENABLED,
+                )
+                .unwrap_or(false);
+                let submit_key_str = crate::settings::get_typed::<String>(
+                    &conn,
+                    crate::settings::keys::AUTO_SUBMIT_KEY,
+                )
+                .unwrap_or_else(|_| "enter".to_string());
+                let submit_delay = crate::settings::get_typed::<u64>(
+                    &conn,
+                    crate::settings::keys::AUTO_SUBMIT_DELAY_MS,
+                )
+                .unwrap_or(100);
+                let edit_buf = crate::settings::get_typed::<bool>(
+                    &conn,
+                    crate::settings::keys::EDIT_BUFFER_ENABLED,
+                )
+                .unwrap_or(false);
                 (
                     SuppressionLevel::from_str(&level_str),
                     method,
                     mode,
                     punctuate,
+                    submit_enabled,
+                    output::AutoSubmitKey::from_str(&submit_key_str),
+                    submit_delay,
+                    edit_buf,
                 )
             };
 
@@ -269,61 +365,66 @@ impl DictationManager {
                         "Dictation transcription complete"
                     );
 
-                    // Transition to inserting
-                    *state_ref.lock().await = DictationState::Inserting;
-                    emit_state(
-                        &app_handle,
-                        &DictationEvent {
-                            state: DictationState::Inserting,
-                            text: Some(text.clone()),
-                            error: None,
-                            latency_ms: Some(latency),
-                        },
-                    );
+                    // Edit buffer path: open edit window instead of inserting directly
+                    if edit_buffer_enabled {
+                        *pending_edit_arc.lock().await = Some(PendingEdit {
+                            text: text.clone(),
+                            focus_target,
+                            selection,
+                            output_method,
+                            auto_submit_enabled,
+                            auto_submit_key,
+                            auto_submit_delay_ms,
+                            audio: audio_for_history,
+                            release_time,
+                        });
 
-                    // Restore focus to the original app before inserting
-                    if let Some(ref target) = focus_target {
-                        focus::restore_focus(target);
-                    }
-
-                    // Insert text (blocking: uses thread::sleep + enigo)
-                    let text_for_insert = text.clone();
-                    let insert_result = tokio::task::spawn_blocking(move || {
-                        output::insert_text(&text_for_insert, &output_method)
-                    })
-                    .await
-                    .unwrap_or_else(|e| Err(format!("Insert task panicked: {e}")));
-                    if let Err(e) = insert_result {
-                        error!(%e, "Text insertion failed");
+                        *state_ref.lock().await = DictationState::Editing;
                         emit_state(
                             &app_handle,
                             &DictationEvent {
-                                state: DictationState::Idle,
+                                state: DictationState::Editing,
                                 text: Some(text),
-                                error: Some(format!("Insertion failed: {e}")),
+                                error: None,
                                 latency_ms: Some(latency),
                             },
                         );
-                    } else {
-                        let total_latency = release_time.elapsed().as_millis() as u64;
-                        info!(total_latency_ms = total_latency, "Text inserted");
 
-                        // Save to history
-                        save_to_history(&db, &app_handle, &text, &audio_for_history, total_latency)
-                            .await;
+                        // Open the edit buffer window
+                        if let Err(e) = open_edit_buffer_window(&app_handle) {
+                            error!(%e, "Failed to open edit buffer window");
+                            *pending_edit_arc.lock().await = None;
+                            *state_ref.lock().await = DictationState::Idle;
+                            emit_state(
+                                &app_handle,
+                                &DictationEvent {
+                                    state: DictationState::Idle,
+                                    text: None,
+                                    error: Some(format!("Edit buffer failed: {e}")),
+                                    latency_ms: None,
+                                },
+                            );
+                        }
 
-                        emit_state(
-                            &app_handle,
-                            &DictationEvent {
-                                state: DictationState::Idle,
-                                text: Some(text),
-                                error: None,
-                                latency_ms: Some(total_latency),
-                            },
-                        );
+                        return;
                     }
 
-                    *state_ref.lock().await = DictationState::Idle;
+                    // Direct insertion path (edit buffer disabled)
+                    do_insert(
+                        &app_handle,
+                        &state_ref,
+                        &db,
+                        &text,
+                        &focus_target,
+                        &selection,
+                        &output_method,
+                        auto_submit_enabled,
+                        &auto_submit_key,
+                        auto_submit_delay_ms,
+                        &audio_for_history,
+                        release_time,
+                    )
+                    .await;
                 }
                 Err(e) => {
                     error!(%e, "Dictation transcription failed");
@@ -341,6 +442,212 @@ impl DictationManager {
             }
         });
     }
+}
+
+/// Perform text insertion, auto-submit, history save, and state transition.
+#[allow(clippy::too_many_arguments)]
+async fn do_insert(
+    app: &AppHandle,
+    state_ref: &Arc<Mutex<DictationState>>,
+    db: &crate::db::DbHandle,
+    text: &str,
+    focus_target: &Option<focus::FocusTarget>,
+    selection: &output::selection::SelectionState,
+    output_method: &output::OutputMethod,
+    auto_submit_enabled: bool,
+    auto_submit_key: &output::AutoSubmitKey,
+    auto_submit_delay_ms: u64,
+    audio: &AudioBuffer,
+    release_time: Instant,
+) {
+    // Transition to inserting
+    *state_ref.lock().await = DictationState::Inserting;
+    emit_state(
+        app,
+        &DictationEvent {
+            state: DictationState::Inserting,
+            text: Some(text.to_string()),
+            error: None,
+            latency_ms: Some(release_time.elapsed().as_millis() as u64),
+        },
+    );
+
+    // Restore focus to the original app before inserting
+    if let Some(ref target) = focus_target {
+        focus::restore_focus(target);
+    }
+
+    // Log selection-aware replacement
+    if let output::selection::SelectionState::Selected(sel) = selection {
+        info!(
+            selected_len = sel.len(),
+            "Replacing selected text with transcription"
+        );
+    }
+
+    // Insert text (blocking: uses thread::sleep + enigo)
+    let text_owned = text.to_string();
+    let method = output_method.clone();
+    let insert_result =
+        tokio::task::spawn_blocking(move || output::insert_text(&text_owned, &method))
+            .await
+            .unwrap_or_else(|e| Err(format!("Insert task panicked: {e}")));
+
+    if let Err(e) = insert_result {
+        error!(%e, "Text insertion failed");
+        *state_ref.lock().await = DictationState::Idle;
+        emit_state(
+            app,
+            &DictationEvent {
+                state: DictationState::Idle,
+                text: Some(text.to_string()),
+                error: Some(format!("Insertion failed: {e}")),
+                latency_ms: Some(release_time.elapsed().as_millis() as u64),
+            },
+        );
+        return;
+    }
+
+    // Auto-submit after successful insertion (skip for clipboard-only mode)
+    if auto_submit_enabled && *output_method != output::OutputMethod::ClipboardOnly {
+        let key = auto_submit_key.clone();
+        let delay = auto_submit_delay_ms;
+        let submit_result = tokio::task::spawn_blocking(move || {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+            output::auto_submit(&key)
+        })
+        .await
+        .unwrap_or_else(|e| Err(format!("Submit task panicked: {e}")));
+        if let Err(e) = submit_result {
+            warn!(%e, "Auto-submit failed");
+        }
+    }
+
+    let total_latency = release_time.elapsed().as_millis() as u64;
+    info!(total_latency_ms = total_latency, "Text inserted");
+
+    // Save to history
+    save_to_history(db, app, text, audio, total_latency).await;
+
+    *state_ref.lock().await = DictationState::Idle;
+    emit_state(
+        app,
+        &DictationEvent {
+            state: DictationState::Idle,
+            text: Some(text.to_string()),
+            error: None,
+            latency_ms: Some(total_latency),
+        },
+    );
+}
+
+/// Open the edit buffer window.
+fn open_edit_buffer_window(app: &AppHandle) -> Result<(), String> {
+    use tauri::WebviewWindowBuilder;
+
+    // Close existing edit buffer window if any
+    if let Some(w) = app.get_webview_window("edit-buffer") {
+        let _ = w.close();
+    }
+
+    let url = tauri::WebviewUrl::App("edit-buffer.html".into());
+    let window = WebviewWindowBuilder::new(app, "edit-buffer", url)
+        .title("EchoType — Edit")
+        .inner_size(480.0, 320.0)
+        .resizable(true)
+        .center()
+        .focused(true)
+        .build()
+        .map_err(|e| format!("Failed to create edit buffer window: {e}"))?;
+
+    // Handle external close (X button, Cmd+W) — clean up state
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            let app = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let state: tauri::State<'_, AppState> = app.state();
+                // Only clean up if still in Editing state (Insert/Discard already handled)
+                let current = state.dictation_manager.state.lock().await.clone();
+                if current == DictationState::Editing {
+                    state.pending_edit.lock().await.take();
+                    *state.dictation_manager.state.lock().await = DictationState::Idle;
+                    emit_state(
+                        &app,
+                        &DictationEvent {
+                            state: DictationState::Idle,
+                            text: None,
+                            error: None,
+                            latency_ms: None,
+                        },
+                    );
+                    info!("Edit buffer window closed externally, returning to idle");
+                }
+            });
+        }
+    });
+
+    info!("Edit buffer window opened");
+    Ok(())
+}
+
+/// Called by the edit buffer window's Insert button.
+pub async fn complete_edit_insert(app: &AppHandle, edited_text: String) {
+    let state: tauri::State<'_, AppState> = app.state();
+    let pending = state.pending_edit.lock().await.take();
+
+    let Some(pending) = pending else {
+        warn!("No pending edit found for insert");
+        return;
+    };
+
+    // Close edit buffer window
+    if let Some(w) = app.get_webview_window("edit-buffer") {
+        let _ = w.close();
+    }
+
+    let state_ref = state.dictation_manager.state.clone();
+    let db = state.db.clone();
+
+    do_insert(
+        app,
+        &state_ref,
+        &db,
+        &edited_text,
+        &pending.focus_target,
+        &pending.selection,
+        &pending.output_method,
+        pending.auto_submit_enabled,
+        &pending.auto_submit_key,
+        pending.auto_submit_delay_ms,
+        &pending.audio,
+        pending.release_time,
+    )
+    .await;
+}
+
+/// Called by the edit buffer window's Discard button.
+pub async fn complete_edit_discard(app: &AppHandle) {
+    let state: tauri::State<'_, AppState> = app.state();
+    state.pending_edit.lock().await.take();
+
+    // Close edit buffer window
+    if let Some(w) = app.get_webview_window("edit-buffer") {
+        let _ = w.close();
+    }
+
+    *state.dictation_manager.state.lock().await = DictationState::Idle;
+    emit_state(
+        app,
+        &DictationEvent {
+            state: DictationState::Idle,
+            text: None,
+            error: None,
+            latency_ms: None,
+        },
+    );
+
+    info!("Edit buffer discarded");
 }
 
 /// Run the audio pipeline and transcription.

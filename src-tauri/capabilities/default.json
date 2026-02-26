@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capability set for EchoType",
-  "windows": ["main"],
+  "windows": ["main", "edit-buffer"],
   "permissions": [
     "core:default",
     "global-shortcut:allow-register",

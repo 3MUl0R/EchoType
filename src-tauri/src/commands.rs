@@ -308,6 +308,44 @@ pub async fn get_active_model(state: State<'_, AppState>) -> Result<Option<Strin
     Ok(state.active_model_id.lock().await.clone())
 }
 
+// --- Edit Buffer Commands ---
+
+#[tauri::command]
+pub async fn get_edit_buffer_text(state: State<'_, AppState>) -> Result<String, String> {
+    let pending = state.pending_edit.lock().await;
+    match pending.as_ref() {
+        Some(edit) => Ok(edit.text.clone()),
+        None => Err("No pending edit".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn edit_buffer_insert(app: AppHandle, text: String) -> Result<(), String> {
+    crate::dictation::complete_edit_insert(&app, text).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn edit_buffer_discard(app: AppHandle) -> Result<(), String> {
+    crate::dictation::complete_edit_discard(&app).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn edit_buffer_copy(text: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        use arboard::Clipboard;
+        let mut clipboard = Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
+        clipboard
+            .set_text(&text)
+            .map_err(|e| format!("Failed to copy: {e}"))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))??;
+    Ok(())
+}
+
 // --- Settings Commands ---
 
 #[tauri::command]

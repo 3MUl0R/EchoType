@@ -31,6 +31,27 @@ pub struct CaptureSession {
 }
 
 impl CaptureSession {
+    /// Peek at the current accumulated buffer without stopping capture.
+    /// Returns a clone of the current mono audio data.
+    pub fn peek_buffer(&self) -> AudioBuffer {
+        let samples_raw = self
+            .buffer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+
+        let samples = if self.channels > 1 {
+            mix_to_mono(&samples_raw, self.channels)
+        } else {
+            samples_raw
+        };
+
+        AudioBuffer {
+            samples,
+            sample_rate: self.sample_rate,
+        }
+    }
+
     /// Stop capturing and return the recorded audio buffer.
     pub fn stop(self) -> AudioBuffer {
         drop(self.stream); // Stops the stream

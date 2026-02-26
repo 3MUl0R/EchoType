@@ -12,6 +12,7 @@
     | "idle"
     | "recording"
     | "transcribing"
+    | "editing"
     | "inserting";
 
   type Page = "dictation" | "models" | "history" | "settings";

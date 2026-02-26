@@ -1,3 +1,5 @@
+pub mod selection;
+
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
@@ -140,6 +142,71 @@ pub fn auto_select_method() -> OutputMethod {
     }
 }
 
+/// Auto-submit key to simulate after text insertion.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoSubmitKey {
+    Enter,
+    CtrlEnter,
+    CmdEnter,
+}
+
+impl AutoSubmitKey {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "ctrl_enter" => Self::CtrlEnter,
+            "cmd_enter" => Self::CmdEnter,
+            _ => Self::Enter,
+        }
+    }
+}
+
+/// Simulate a keypress for auto-submit after text insertion.
+pub fn auto_submit(key: &AutoSubmitKey) -> Result<(), String> {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+
+    let mut enigo =
+        Enigo::new(&Settings::default()).map_err(|e| format!("Failed to init enigo: {e}"))?;
+
+    match key {
+        AutoSubmitKey::Enter => {
+            enigo
+                .key(Key::Return, Direction::Click)
+                .map_err(|e| format!("Failed to press Enter: {e}"))?;
+        }
+        AutoSubmitKey::CtrlEnter => {
+            enigo
+                .key(Key::Control, Direction::Press)
+                .map_err(|e| format!("Failed to press Ctrl: {e}"))?;
+            enigo
+                .key(Key::Return, Direction::Click)
+                .map_err(|e| format!("Failed to press Return: {e}"))?;
+            enigo
+                .key(Key::Control, Direction::Release)
+                .map_err(|e| format!("Failed to release Ctrl: {e}"))?;
+        }
+        AutoSubmitKey::CmdEnter => {
+            #[cfg(target_os = "macos")]
+            let modifier = Key::Meta;
+            #[cfg(not(target_os = "macos"))]
+            let modifier = Key::Control;
+
+            enigo
+                .key(modifier, Direction::Press)
+                .map_err(|e| format!("Failed to press modifier: {e}"))?;
+            enigo
+                .key(Key::Return, Direction::Click)
+                .map_err(|e| format!("Failed to press Return: {e}"))?;
+            enigo
+                .key(modifier, Direction::Release)
+                .map_err(|e| format!("Failed to release modifier: {e}"))?;
+        }
+    }
+
+    debug!("Auto-submit keypress sent: {:?}", key);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +225,25 @@ mod tests {
     #[test]
     fn insert_empty_text_is_ok() {
         assert!(insert_text("", &OutputMethod::DirectInput).is_ok());
+    }
+
+    #[test]
+    fn auto_submit_key_from_str() {
+        assert_eq!(AutoSubmitKey::from_str("enter"), AutoSubmitKey::Enter);
+        assert_eq!(
+            AutoSubmitKey::from_str("ctrl_enter"),
+            AutoSubmitKey::CtrlEnter
+        );
+        assert_eq!(
+            AutoSubmitKey::from_str("cmd_enter"),
+            AutoSubmitKey::CmdEnter
+        );
+        assert_eq!(AutoSubmitKey::from_str("unknown"), AutoSubmitKey::Enter);
+    }
+
+    #[test]
+    fn auto_submit_key_serializes() {
+        let json = serde_json::to_string(&AutoSubmitKey::CtrlEnter).unwrap();
+        assert_eq!(json, "\"ctrl_enter\"");
     }
 }

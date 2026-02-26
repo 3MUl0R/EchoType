@@ -24,6 +24,11 @@
     dictation_mode: string;
     silence_cutoff_seconds: number;
     toggle_auto_stop_enabled: boolean;
+    auto_submit_enabled: boolean;
+    auto_submit_key: string;
+    auto_submit_delay_ms: number;
+    streaming_enabled: boolean;
+    edit_buffer_enabled: boolean;
   }
 
   interface AudioDevice {
@@ -280,6 +285,103 @@
             </div>
           {/if}
         {/if}
+
+        <div class="flex items-center justify-between">
+          <label for="auto-submit" class="text-sm"
+            >{t("settings.auto_submit")}</label
+          >
+          <input
+            id="auto-submit"
+            type="checkbox"
+            checked={settings.auto_submit_enabled}
+            onchange={(e) =>
+              saveSetting(
+                "auto_submit_enabled",
+                (e.target as HTMLInputElement).checked,
+              )}
+            class="h-4 w-4 rounded accent-accent"
+          />
+        </div>
+
+        {#if settings.auto_submit_enabled}
+          <div class="flex items-center justify-between">
+            <label for="submit-key" class="text-sm"
+              >{t("settings.auto_submit_key")}</label
+            >
+            <select
+              id="submit-key"
+              value={settings.auto_submit_key}
+              onchange={(e) =>
+                saveSetting(
+                  "auto_submit_key",
+                  (e.target as HTMLSelectElement).value,
+                )}
+              class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+            >
+              <option value="enter">{t("settings.submit_enter")}</option>
+              <option value="ctrl_enter"
+                >{t("settings.submit_ctrl_enter")}</option
+              >
+              <option value="cmd_enter"
+                >{t("settings.submit_cmd_enter")}</option
+              >
+            </select>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <label for="submit-delay" class="text-sm"
+              >{t("settings.auto_submit_delay")}</label
+            >
+            <input
+              id="submit-delay"
+              type="number"
+              min="50"
+              max="500"
+              step="50"
+              value={settings.auto_submit_delay_ms}
+              onchange={(e) =>
+                saveSetting(
+                  "auto_submit_delay_ms",
+                  parseInt((e.target as HTMLInputElement).value) || 100,
+                )}
+              class="w-24 rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+            />
+          </div>
+        {/if}
+
+        <div class="flex items-center justify-between">
+          <label for="streaming" class="text-sm"
+            >{t("settings.streaming_preview")}</label
+          >
+          <input
+            id="streaming"
+            type="checkbox"
+            checked={settings.streaming_enabled}
+            onchange={(e) =>
+              saveSetting(
+                "streaming_enabled",
+                (e.target as HTMLInputElement).checked,
+              )}
+            class="h-4 w-4 rounded accent-accent"
+          />
+        </div>
+
+        <div class="flex items-center justify-between">
+          <label for="edit-buffer" class="text-sm"
+            >{t("settings.edit_buffer")}</label
+          >
+          <input
+            id="edit-buffer"
+            type="checkbox"
+            checked={settings.edit_buffer_enabled}
+            onchange={(e) =>
+              saveSetting(
+                "edit_buffer_enabled",
+                (e.target as HTMLInputElement).checked,
+              )}
+            class="h-4 w-4 rounded accent-accent"
+          />
+        </div>
       </div>
     </section>
 

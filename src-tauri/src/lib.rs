@@ -34,6 +34,9 @@ pub struct AppState {
     pub download_manager: DownloadManager,
     pub active_model_id: Arc<Mutex<Option<String>>>,
     pub db: db::DbHandle,
+    pub selection_state: Arc<Mutex<output::selection::SelectionState>>,
+    pub streaming_handle: Arc<Mutex<Option<dictation::streaming::StreamingHandle>>>,
+    pub pending_edit: Arc<Mutex<Option<dictation::PendingEdit>>>,
 }
 
 #[tauri::command]
@@ -91,6 +94,9 @@ pub fn run() {
         download_manager: DownloadManager::new(),
         active_model_id: Arc::new(Mutex::new(active_model_id)),
         db: db_handle,
+        selection_state: Arc::new(Mutex::new(output::selection::SelectionState::NoSelection)),
+        streaming_handle: Arc::new(Mutex::new(None)),
+        pending_edit: Arc::new(Mutex::new(None)),
     };
 
     tauri::Builder::default()
@@ -124,6 +130,10 @@ pub fn run() {
             commands::delete_history_entry,
             commands::clear_history,
             commands::copy_history_text,
+            commands::get_edit_buffer_text,
+            commands::edit_buffer_insert,
+            commands::edit_buffer_discard,
+            commands::edit_buffer_copy,
         ])
         .setup(|app| {
             // Register the dictation hotkey

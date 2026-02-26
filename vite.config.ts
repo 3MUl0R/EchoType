@@ -13,6 +13,14 @@ export default defineConfig({
       $lib: path.resolve(__dirname, "src/lib"),
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        "edit-buffer": path.resolve(__dirname, "edit-buffer.html"),
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

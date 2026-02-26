@@ -26,6 +26,11 @@ pub mod keys {
     pub const DICTATION_MODE: &str = "dictation_mode";
     pub const SILENCE_CUTOFF_SECONDS: &str = "silence_cutoff_seconds";
     pub const TOGGLE_AUTO_STOP_ENABLED: &str = "toggle_auto_stop_enabled";
+    pub const AUTO_SUBMIT_ENABLED: &str = "auto_submit_enabled";
+    pub const AUTO_SUBMIT_KEY: &str = "auto_submit_key";
+    pub const AUTO_SUBMIT_DELAY_MS: &str = "auto_submit_delay_ms";
+    pub const STREAMING_ENABLED: &str = "streaming_enabled";
+    pub const EDIT_BUFFER_ENABLED: &str = "edit_buffer_enabled";
 }
 
 /// All user-facing settings with their current values.
@@ -51,6 +56,11 @@ pub struct AllSettings {
     pub dictation_mode: String,
     pub silence_cutoff_seconds: f64,
     pub toggle_auto_stop_enabled: bool,
+    pub auto_submit_enabled: bool,
+    pub auto_submit_key: String,
+    pub auto_submit_delay_ms: u64,
+    pub streaming_enabled: bool,
+    pub edit_buffer_enabled: bool,
 }
 
 /// Default values for all settings.
@@ -80,6 +90,11 @@ fn default_for(key: &str) -> Option<String> {
         keys::DICTATION_MODE => "\"formatted\"",
         keys::SILENCE_CUTOFF_SECONDS => "1.5",
         keys::TOGGLE_AUTO_STOP_ENABLED => "false",
+        keys::AUTO_SUBMIT_ENABLED => "false",
+        keys::AUTO_SUBMIT_KEY => "\"enter\"",
+        keys::AUTO_SUBMIT_DELAY_MS => "100",
+        keys::STREAMING_ENABLED => "true",
+        keys::EDIT_BUFFER_ENABLED => "false",
         _ => return None,
     };
     Some(val.to_string())
@@ -139,6 +154,11 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         dictation_mode: get_typed(conn, keys::DICTATION_MODE)?,
         silence_cutoff_seconds: get_typed(conn, keys::SILENCE_CUTOFF_SECONDS)?,
         toggle_auto_stop_enabled: get_typed(conn, keys::TOGGLE_AUTO_STOP_ENABLED)?,
+        auto_submit_enabled: get_typed(conn, keys::AUTO_SUBMIT_ENABLED)?,
+        auto_submit_key: get_typed(conn, keys::AUTO_SUBMIT_KEY)?,
+        auto_submit_delay_ms: get_typed(conn, keys::AUTO_SUBMIT_DELAY_MS)?,
+        streaming_enabled: get_typed(conn, keys::STREAMING_ENABLED)?,
+        edit_buffer_enabled: get_typed(conn, keys::EDIT_BUFFER_ENABLED)?,
     })
 }
 
@@ -221,6 +241,11 @@ mod tests {
             keys::DICTATION_MODE,
             keys::SILENCE_CUTOFF_SECONDS,
             keys::TOGGLE_AUTO_STOP_ENABLED,
+            keys::AUTO_SUBMIT_ENABLED,
+            keys::AUTO_SUBMIT_KEY,
+            keys::AUTO_SUBMIT_DELAY_MS,
+            keys::STREAMING_ENABLED,
+            keys::EDIT_BUFFER_ENABLED,
         ] {
             let val = default_for(key).unwrap();
             assert!(
@@ -283,6 +308,11 @@ mod tests {
         assert_eq!(all.dictation_mode, "formatted");
         assert!((all.silence_cutoff_seconds - 1.5).abs() < f64::EPSILON);
         assert!(!all.toggle_auto_stop_enabled);
+        assert!(!all.auto_submit_enabled);
+        assert_eq!(all.auto_submit_key, "enter");
+        assert_eq!(all.auto_submit_delay_ms, 100);
+        assert!(all.streaming_enabled);
+        assert!(!all.edit_buffer_enabled);
     }
 
     #[test]
