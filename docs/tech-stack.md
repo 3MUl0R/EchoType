@@ -45,23 +45,34 @@ CPU-only is the default. GPU backends require the respective SDKs on the build m
 The `whisper-rs` crate compiles whisper.cpp from source via `whisper-rs-sys`. Use the
 `tracing_backend` feature to route whisper.cpp logs into our tracing pipeline.
 
+**Note:** The `whisper-rs` GitHub repo (tazz4843/whisper-rs) is archived. Active
+development continues on Codeberg. Crate releases on crates.io are still current.
+
 ### Audio
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
 | `cpal` | 0.17.x | Cross-platform audio capture (mic input) |
 | `rodio` | 0.22.x | Audio playback for feedback sounds (built on cpal) |
-| `voice_activity_detector` | 0.2.x | Silero VAD v5 via ONNX Runtime |
+| `voice_activity_detector` | 0.2.x | Silero VAD v5 via ONNX Runtime (see build note below) |
 | `nnnoiseless` | 0.5.x | Noise suppression (pure Rust port of RNNoise) |
+| `rubato` | 0.16.x | Asynchronous audio resampling (48kHz to 16kHz) |
 
 **Platform backends for `cpal`:**
 - macOS: CoreAudio
 - Windows: WASAPI
 - Linux: ALSA (default), PulseAudio and JACK optional
 
+**ONNX Runtime provisioning:** `voice_activity_detector` depends on the `ort` crate
+which by default downloads prebuilt ONNX Runtime binaries from Microsoft at build time.
+For reproducible CI builds, pin the ORT version and cache the downloaded binary. The
+`ort` crate supports a `ORT_LIB_LOCATION` environment variable to point at a
+pre-downloaded copy, avoiding network access during builds.
+
 **Audio pipeline note:** `nnnoiseless` operates on 48kHz audio in 480-sample (10ms)
 frames. Whisper expects 16kHz. The pipeline should capture at 48kHz, denoise, then
-downsample to 16kHz -- avoids double resampling.
+downsample to 16kHz via `rubato` -- avoids double resampling. `rubato` is a pure Rust
+high-quality resampler with no C dependencies.
 
 ### Tauri Plugins
 
@@ -92,7 +103,7 @@ permission is missing, the app auto-switches to clipboard mode.
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| `rusqlite` | 0.32.x | SQLite bindings (use `bundled` feature) |
+| `rusqlite` | 0.38.x | SQLite bindings (use `bundled` feature) |
 | `rusqlite_migration` | 2.4.x | Schema migrations via `user_version` pragma |
 
 **Why rusqlite (not sqlx, sea-orm, or tauri-plugin-sql):**
@@ -106,7 +117,7 @@ permission is missing, the app auto-switches to clipboard mode.
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| `reqwest` | 0.12.x | HTTP client for model downloads and cloud API calls |
+| `reqwest` | 0.13.x | HTTP client for model downloads and cloud API calls |
 
 Use `stream` feature for streaming downloads with progress reporting. Use `rustls-tls`
 for consistent cross-platform TLS without OpenSSL dependency.
@@ -119,6 +130,8 @@ Resumable downloads use the `Range` HTTP header. Check for partial files on disk
 | Crate | Version | Purpose |
 |-------|---------|---------|
 | `keyring` | 3.6.x | Platform keychain for API key storage |
+| `sha2` | 0.10.x | SHA-256 checksums for model download integrity verification |
+| `hex` | 0.4.x | Hex encoding for checksum comparison |
 
 **Platform backends:**
 - macOS: Keychain Services (`apple-native` feature)
@@ -127,6 +140,28 @@ Resumable downloads use the `Range` HTTP header. Check for partial files on disk
 
 All three platform features must be enabled explicitly -- `keyring` has no default
 features.
+
+### Focused Window Detection
+
+Per-app profiles and focus lock require identifying the currently focused application.
+There is no single cross-platform crate that covers this reliably, so we use platform
+APIs directly via conditional compilation:
+
+| Platform | API | Identifier |
+|----------|-----|------------|
+| macOS | `NSWorkspace` / Core Graphics (`CGWindowListCopyWindowInfo`) | Bundle ID (e.g., `com.apple.Terminal`) |
+| Windows | `GetForegroundWindow` + `GetWindowThreadProcessId` via `windows` crate | Executable path |
+| Linux (X11) | `xcb` or `x11rb` -- `_NET_ACTIVE_WINDOW` property | Window class / executable path |
+| Linux (Wayland) | Limited -- no standard protocol for querying focused app from another process | Best-effort via compositor extensions |
+
+This is a thin platform abstraction layer we write ourselves. No third-party crate
+needed -- the platform calls are straightforward and we avoid an unnecessary dependency.
+
+**Wayland limitation:** Wayland's security model intentionally prevents apps from
+inspecting other windows. Per-app profile switching may be unavailable or require
+compositor-specific extensions (e.g., `wlr-foreign-toplevel-management` on wlroots-based
+compositors). The app should detect this at runtime and fall back to manual profile
+selection.
 
 ### Clipboard
 
@@ -154,6 +189,20 @@ not handle deletion of old files automatically.
 
 **Non-blocking I/O:** Use `tracing_appender::non_blocking` to avoid log writes blocking
 the dictation pipeline. The returned `WorkerGuard` must be held for the app's lifetime.
+
+### CLI and IPC
+
+| Crate | Version | Purpose |
+|-------|---------|---------|
+| `clap` | 4.x | Command-line argument parsing (daemon mode, pipe mode, flags) |
+| `interprocess` | 2.x | Cross-platform IPC (Unix domain sockets + Windows named pipes) |
+
+`clap` handles CLI parsing for `echotype --stdout`, `echotype --daemon`, and any other
+flags. Use the `derive` feature for declarative argument definitions.
+
+`interprocess` provides the transport for daemon mode IPC. The GUI app and CLI clients
+communicate over Unix domain sockets (macOS/Linux) or named pipes (Windows). Messages
+are serialized with `serde_json` over the socket.
 
 ### Serialization
 
@@ -218,10 +267,14 @@ Enable the `test` feature on the `tauri` crate for access to `mock_builder()`,
 | Playwright | E2E tests against the Vite dev server with mocked IPC |
 | `tauri-driver` | WebDriver-based E2E against the real app (Linux and Windows only) |
 
-Playwright runs against the Vite dev server with mocked Tauri IPC. This tests the full
-UI flow without requiring a built Tauri app. For native integration testing,
-`tauri-driver` provides WebDriver support on Linux (WebKitWebDriver) and Windows
-(Edge Driver). macOS does not have WebDriver support for WKWebView.
+**Playwright is the primary E2E tool.** It runs against the Vite dev server with mocked
+Tauri IPC, testing the full UI flow without requiring a built Tauri app. This covers the
+vast majority of E2E scenarios and runs on all platforms.
+
+`tauri-driver` is optional, used only for a small set of native smoke tests that verify
+the real app launches and basic IPC works. It requires WebDriver support, which is
+available on Linux (WebKitWebDriver) and Windows (Edge Driver) only -- macOS does not
+support WebDriver for WKWebView.
 
 ---
 
@@ -262,6 +315,26 @@ disabled.
 Code signing certificates are passed as CI secrets. The Tauri action handles the signing
 process when the environment variables are set. Exact certificate acquisition (Apple
 Developer Program, SignPath Foundation for OSS, etc.) is a project setup task.
+
+### GPU Build Strategy
+
+Ship **CPU-only as the default** artifact on all platforms. GPU-accelerated variants are
+built as separate flavors:
+
+| Flavor | Platforms | CI Requirement |
+|--------|-----------|----------------|
+| CPU (default) | All | None |
+| Metal | macOS only | Xcode (already present on macOS runners) |
+| CUDA | Windows, Linux | CUDA toolkit on runner |
+| Vulkan | Windows, Linux | Vulkan SDK on runner |
+
+Each GPU flavor is a separate CI matrix entry with its own `whisper-rs` feature flag.
+The macOS Metal build can be the default macOS artifact since Metal is available on all
+supported Macs and requires no additional SDK. CUDA and Vulkan produce separate
+downloadable artifacts (e.g., `echotype-cuda-windows-x64.msi`).
+
+The auto-updater should use separate update channels per flavor so a CPU user does not
+accidentally receive a CUDA build.
 
 ---
 
