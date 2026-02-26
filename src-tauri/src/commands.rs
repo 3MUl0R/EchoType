@@ -75,16 +75,20 @@ pub async fn transcribe_audio(
         "Processing audio for transcription"
     );
 
-    // Read denoise setting
-    let denoise_enabled = {
+    // Read noise suppression setting
+    let suppression_level = {
         let conn = state.db.lock().await;
-        crate::settings::get_typed::<bool>(&conn, crate::settings::keys::DENOISE_ENABLED)
-            .unwrap_or(true)
+        let level_str = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::NOISE_SUPPRESSION_LEVEL,
+        )
+        .unwrap_or_else(|_| "moderate".to_string());
+        crate::audio::denoise::SuppressionLevel::from_str(&level_str)
     };
 
     // Run audio pipeline (denoise + resample) off the async runtime
     let processed = tokio::task::spawn_blocking(move || {
-        let config = pipeline::PipelineConfig { denoise_enabled };
+        let config = pipeline::PipelineConfig { suppression_level };
         pipeline::process(&raw, &config)
     })
     .await

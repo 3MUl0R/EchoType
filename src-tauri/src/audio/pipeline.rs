@@ -1,19 +1,20 @@
 use tracing::{debug, info};
 
+use super::denoise::SuppressionLevel;
 use super::AudioBuffer;
 
 const WHISPER_SAMPLE_RATE: u32 = 16000;
 
 /// Configuration for the audio processing pipeline.
 pub struct PipelineConfig {
-    /// Whether to apply noise suppression.
-    pub denoise_enabled: bool,
+    /// Noise suppression level.
+    pub suppression_level: SuppressionLevel,
 }
 
 impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
-            denoise_enabled: true,
+            suppression_level: SuppressionLevel::Moderate,
         }
     }
 }
@@ -32,14 +33,14 @@ pub fn process(raw: &AudioBuffer, config: &PipelineConfig) -> Result<AudioBuffer
     info!(
         input_rate = raw.sample_rate,
         input_samples = raw.samples.len(),
-        denoise = config.denoise_enabled,
+        suppression = ?config.suppression_level,
         "Processing audio pipeline"
     );
 
     // Step 1: Denoise at capture sample rate
-    let denoised = if config.denoise_enabled {
-        debug!("Running noise suppression");
-        super::denoise::denoise(&raw.samples, raw.sample_rate)
+    let denoised = if config.suppression_level != SuppressionLevel::Off {
+        debug!(level = ?config.suppression_level, "Running noise suppression");
+        super::denoise::denoise_with_level(&raw.samples, raw.sample_rate, config.suppression_level)
     } else {
         raw.samples.clone()
     };
@@ -93,7 +94,7 @@ mod tests {
             sample_rate: 48000,
         };
         let config = PipelineConfig {
-            denoise_enabled: false,
+            suppression_level: SuppressionLevel::Off,
         };
         let result = process(&buf, &config).unwrap();
         assert_eq!(result.sample_rate, 16000);

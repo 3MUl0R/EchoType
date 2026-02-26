@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+use crate::audio::denoise::SuppressionLevel;
 use crate::audio::{capture, feedback, pipeline, AudioBuffer};
 use crate::engine::TranscribeRequest;
 use crate::output;
@@ -225,25 +226,42 @@ impl DictationManager {
 
         tokio::spawn(async move {
             // Read settings before transcription (async-safe)
-            let (denoise_enabled, output_method) = {
+            let (suppression_level, output_method, dictation_mode, auto_punctuate) = {
                 let conn = db.lock().await;
-                let denoise = crate::settings::get_typed::<bool>(
+                let level_str = crate::settings::get_typed::<String>(
                     &conn,
-                    crate::settings::keys::DENOISE_ENABLED,
+                    crate::settings::keys::NOISE_SUPPRESSION_LEVEL,
                 )
-                .unwrap_or(true);
+                .unwrap_or_else(|_| "moderate".to_string());
                 let method = crate::settings::get_typed::<output::OutputMethod>(
                     &conn,
                     crate::settings::keys::OUTPUT_METHOD,
                 )
                 .unwrap_or_else(|_| output::auto_select_method());
-                (denoise, method)
+                let mode = crate::settings::get_typed::<String>(
+                    &conn,
+                    crate::settings::keys::DICTATION_MODE,
+                )
+                .unwrap_or_else(|_| "formatted".to_string());
+                let punctuate = crate::settings::get_typed::<bool>(
+                    &conn,
+                    crate::settings::keys::AUTO_PUNCTUATE,
+                )
+                .unwrap_or(true);
+                (
+                    SuppressionLevel::from_str(&level_str),
+                    method,
+                    mode,
+                    punctuate,
+                )
             };
 
-            let result = run_transcription_pipeline(buffer, &engine_manager, denoise_enabled).await;
+            let result =
+                run_transcription_pipeline(buffer, &engine_manager, suppression_level).await;
 
             match result {
-                Ok(text) => {
+                Ok(raw_text) => {
+                    let text = postprocess_text(&raw_text, &dictation_mode, auto_punctuate);
                     let latency = release_time.elapsed().as_millis() as u64;
                     info!(
                         latency_ms = latency,
@@ -329,11 +347,11 @@ impl DictationManager {
 async fn run_transcription_pipeline(
     buffer: crate::audio::AudioBuffer,
     engine_manager: &crate::engine::manager::EngineManager,
-    denoise_enabled: bool,
+    suppression_level: SuppressionLevel,
 ) -> Result<String, String> {
     // Pipeline: denoise + resample (blocking work)
     let processed = tokio::task::spawn_blocking(move || {
-        let config = pipeline::PipelineConfig { denoise_enabled };
+        let config = pipeline::PipelineConfig { suppression_level };
         pipeline::process(&buffer, &config)
     })
     .await
@@ -496,6 +514,62 @@ async fn play_feedback_chime(app_state: &AppState, chime: feedback::Chime) {
     }
 }
 
+/// Post-process transcribed text based on dictation settings.
+///
+/// - `dictation_mode: "raw"` → lowercase, strip punctuation
+/// - `dictation_mode: "formatted"` + `auto_punctuate: false` → strip punctuation
+/// - `dictation_mode: "formatted"` + `auto_punctuate: true` → unchanged
+fn postprocess_text(text: &str, dictation_mode: &str, auto_punctuate: bool) -> String {
+    match dictation_mode {
+        "raw" => {
+            let stripped = strip_punctuation(text);
+            stripped.to_lowercase()
+        }
+        _ => {
+            // "formatted" mode
+            if auto_punctuate {
+                text.to_string()
+            } else {
+                strip_punctuation(text)
+            }
+        }
+    }
+}
+
+/// Remove punctuation from text, preserving word spacing and apostrophes in contractions.
+/// Punctuation between alphanumeric characters is replaced with a space (to avoid merging tokens).
+fn strip_punctuation(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+
+    for (i, &ch) in chars.iter().enumerate() {
+        if ch.is_alphanumeric() || ch.is_whitespace() {
+            result.push(ch);
+            continue;
+        }
+
+        if ch == '\'' {
+            // Keep apostrophes in contractions (between letters)
+            let prev_letter = i > 0 && chars[i - 1].is_alphabetic();
+            let next_letter = i + 1 < chars.len() && chars[i + 1].is_alphabetic();
+            if prev_letter && next_letter {
+                result.push(ch);
+                continue;
+            }
+        }
+
+        // Replace punctuation acting as a separator (between alnum chars) with space
+        let prev_alnum = i > 0 && chars[i - 1].is_alphanumeric();
+        let next_alnum = i + 1 < chars.len() && chars[i + 1].is_alphanumeric();
+        if prev_alnum && next_alnum {
+            result.push(' ');
+        }
+    }
+
+    // Collapse multiple spaces
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn emit_state(app: &AppHandle, event: &DictationEvent) {
     if let Err(e) = app.emit("dictation:state", event) {
         error!(%e, "Failed to emit dictation state");
@@ -510,6 +584,48 @@ mod tests {
     async fn starts_idle() {
         let mgr = DictationManager::new();
         assert_eq!(mgr.current_state().await, DictationState::Idle);
+    }
+
+    #[test]
+    fn postprocess_formatted_with_punctuation() {
+        let result = postprocess_text("Hello, world!", "formatted", true);
+        assert_eq!(result, "Hello, world!");
+    }
+
+    #[test]
+    fn postprocess_formatted_no_punctuation() {
+        let result = postprocess_text("Hello, world!", "formatted", false);
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn postprocess_raw_mode() {
+        let result = postprocess_text("Hello, World!", "raw", true);
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn strip_punctuation_keeps_contractions() {
+        let result = strip_punctuation("I don't know.");
+        assert_eq!(result, "I don't know");
+    }
+
+    #[test]
+    fn strip_punctuation_collapses_spaces() {
+        let result = strip_punctuation("Hello...   world!");
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn strip_punctuation_preserves_hyphenated_words() {
+        let result = strip_punctuation("well-known foo-bar");
+        assert_eq!(result, "well known foo bar");
+    }
+
+    #[test]
+    fn strip_punctuation_preserves_decimal_numbers() {
+        let result = strip_punctuation("The value is 3.14 today.");
+        assert_eq!(result, "The value is 3 14 today");
     }
 
     #[test]

@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use tauri::{Listener, Manager};
 use tokio::sync::Mutex;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use dictation::DictationManager;
 use engine::manager::EngineManager;
@@ -201,23 +201,59 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+/// Read the current activation mode from settings.
+async fn get_activation_mode(state: &AppState) -> String {
+    let conn = state.db.lock().await;
+    settings::get_typed::<String>(&conn, settings::keys::ACTIVATION_MODE)
+        .unwrap_or_else(|_| "hold".to_string())
+}
+
 /// Set up listeners for dictation hotkey events.
 fn setup_dictation_listeners(app: &tauri::AppHandle) {
+    // On key press: start recording (hold mode) or toggle (toggle mode)
     let handle = app.clone();
     app.listen("dictation:start", move |_event| {
         let app = handle.clone();
         tauri::async_runtime::spawn(async move {
             let state: tauri::State<'_, AppState> = app.state();
-            state.dictation_manager.on_start(&app).await;
+            let mode = get_activation_mode(&state).await;
+
+            match mode.as_str() {
+                "toggle" => {
+                    // Toggle: if idle → start, if recording → stop
+                    let current = state.dictation_manager.current_state().await;
+                    if current == dictation::DictationState::Recording {
+                        state.dictation_manager.on_stop(&app).await;
+                    } else {
+                        state.dictation_manager.on_start(&app).await;
+                    }
+                }
+                _ => {
+                    // Hold mode (default): press → start
+                    state.dictation_manager.on_start(&app).await;
+                }
+            }
         });
     });
 
+    // On key release: stop recording (hold mode) or ignore (toggle mode)
     let handle = app.clone();
     app.listen("dictation:stop", move |_event| {
         let app = handle.clone();
         tauri::async_runtime::spawn(async move {
             let state: tauri::State<'_, AppState> = app.state();
-            state.dictation_manager.on_stop(&app).await;
+            let mode = get_activation_mode(&state).await;
+
+            match mode.as_str() {
+                "toggle" => {
+                    // Toggle mode: release is ignored
+                    debug!("Toggle mode: ignoring key release");
+                }
+                _ => {
+                    // Hold mode: release → stop
+                    state.dictation_manager.on_stop(&app).await;
+                }
+            }
         });
     });
 

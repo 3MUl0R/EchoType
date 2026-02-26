@@ -20,6 +20,12 @@ pub mod keys {
     pub const AUDIO_FEEDBACK_VOLUME: &str = "audio_feedback_volume";
     pub const SELECTED_MIC_DEVICE: &str = "selected_mic_device";
     pub const MIC_AUTO_FALLBACK: &str = "mic_auto_fallback";
+    pub const ACTIVATION_MODE: &str = "activation_mode";
+    pub const NOISE_SUPPRESSION_LEVEL: &str = "noise_suppression_level";
+    pub const AUTO_PUNCTUATE: &str = "auto_punctuate";
+    pub const DICTATION_MODE: &str = "dictation_mode";
+    pub const SILENCE_CUTOFF_SECONDS: &str = "silence_cutoff_seconds";
+    pub const TOGGLE_AUTO_STOP_ENABLED: &str = "toggle_auto_stop_enabled";
 }
 
 /// All user-facing settings with their current values.
@@ -39,6 +45,12 @@ pub struct AllSettings {
     pub audio_feedback_volume: f64,
     pub selected_mic_device: Option<String>,
     pub mic_auto_fallback: bool,
+    pub activation_mode: String,
+    pub noise_suppression_level: String,
+    pub auto_punctuate: bool,
+    pub dictation_mode: String,
+    pub silence_cutoff_seconds: f64,
+    pub toggle_auto_stop_enabled: bool,
 }
 
 /// Default values for all settings.
@@ -62,6 +74,12 @@ fn default_for(key: &str) -> Option<String> {
         keys::AUDIO_FEEDBACK_ENABLED => "true",
         keys::AUDIO_FEEDBACK_VOLUME => "0.5",
         keys::MIC_AUTO_FALLBACK => "true",
+        keys::ACTIVATION_MODE => "\"hold\"",
+        keys::NOISE_SUPPRESSION_LEVEL => "\"moderate\"",
+        keys::AUTO_PUNCTUATE => "true",
+        keys::DICTATION_MODE => "\"formatted\"",
+        keys::SILENCE_CUTOFF_SECONDS => "1.5",
+        keys::TOGGLE_AUTO_STOP_ENABLED => "false",
         _ => return None,
     };
     Some(val.to_string())
@@ -115,6 +133,12 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         audio_feedback_volume: get_typed(conn, keys::AUDIO_FEEDBACK_VOLUME)?,
         selected_mic_device: get_typed(conn, keys::SELECTED_MIC_DEVICE).ok(),
         mic_auto_fallback: get_typed(conn, keys::MIC_AUTO_FALLBACK)?,
+        activation_mode: get_typed(conn, keys::ACTIVATION_MODE)?,
+        noise_suppression_level: get_typed(conn, keys::NOISE_SUPPRESSION_LEVEL)?,
+        auto_punctuate: get_typed(conn, keys::AUTO_PUNCTUATE)?,
+        dictation_mode: get_typed(conn, keys::DICTATION_MODE)?,
+        silence_cutoff_seconds: get_typed(conn, keys::SILENCE_CUTOFF_SECONDS)?,
+        toggle_auto_stop_enabled: get_typed(conn, keys::TOGGLE_AUTO_STOP_ENABLED)?,
     })
 }
 
@@ -191,6 +215,12 @@ mod tests {
             keys::AUDIO_FEEDBACK_ENABLED,
             keys::AUDIO_FEEDBACK_VOLUME,
             keys::MIC_AUTO_FALLBACK,
+            keys::ACTIVATION_MODE,
+            keys::NOISE_SUPPRESSION_LEVEL,
+            keys::AUTO_PUNCTUATE,
+            keys::DICTATION_MODE,
+            keys::SILENCE_CUTOFF_SECONDS,
+            keys::TOGGLE_AUTO_STOP_ENABLED,
         ] {
             let val = default_for(key).unwrap();
             assert!(
@@ -247,6 +277,12 @@ mod tests {
         assert!((all.audio_feedback_volume - 0.5).abs() < f64::EPSILON);
         assert!(all.selected_mic_device.is_none());
         assert!(all.mic_auto_fallback);
+        assert_eq!(all.activation_mode, "hold");
+        assert_eq!(all.noise_suppression_level, "moderate");
+        assert!(all.auto_punctuate);
+        assert_eq!(all.dictation_mode, "formatted");
+        assert!((all.silence_cutoff_seconds - 1.5).abs() < f64::EPSILON);
+        assert!(!all.toggle_auto_stop_enabled);
     }
 
     #[test]

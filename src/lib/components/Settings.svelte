@@ -18,6 +18,12 @@
     audio_feedback_volume: number;
     selected_mic_device: string | null;
     mic_auto_fallback: boolean;
+    activation_mode: string;
+    noise_suppression_level: string;
+    auto_punctuate: boolean;
+    dictation_mode: string;
+    silence_cutoff_seconds: number;
+    toggle_auto_stop_enabled: boolean;
   }
 
   interface AudioDevice {
@@ -132,6 +138,25 @@
       </h3>
       <div class="space-y-4">
         <div class="flex items-center justify-between">
+          <label for="activation-mode" class="text-sm"
+            >{t("settings.activation_mode")}</label
+          >
+          <select
+            id="activation-mode"
+            value={settings.activation_mode}
+            onchange={(e) =>
+              saveSetting(
+                "activation_mode",
+                (e.target as HTMLSelectElement).value,
+              )}
+            class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+          >
+            <option value="hold">{t("settings.mode_hold")}</option>
+            <option value="toggle">{t("settings.mode_toggle")}</option>
+          </select>
+        </div>
+
+        <div class="flex items-center justify-between">
           <label for="hotkey" class="text-sm">{t("settings.hotkey")}</label>
           <span
             id="hotkey"
@@ -178,6 +203,83 @@
             <option value="auto">Auto-detect</option>
           </select>
         </div>
+
+        <div class="flex items-center justify-between">
+          <label for="dictation-mode" class="text-sm"
+            >{t("settings.dictation_mode")}</label
+          >
+          <select
+            id="dictation-mode"
+            value={settings.dictation_mode}
+            onchange={(e) =>
+              saveSetting(
+                "dictation_mode",
+                (e.target as HTMLSelectElement).value,
+              )}
+            class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+          >
+            <option value="formatted">{t("settings.mode_formatted")}</option>
+            <option value="raw">{t("settings.mode_raw")}</option>
+          </select>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <label for="auto-punctuate" class="text-sm"
+            >{t("settings.auto_punctuate")}</label
+          >
+          <input
+            id="auto-punctuate"
+            type="checkbox"
+            checked={settings.auto_punctuate}
+            onchange={(e) =>
+              saveSetting(
+                "auto_punctuate",
+                (e.target as HTMLInputElement).checked,
+              )}
+            class="h-4 w-4 rounded accent-accent"
+          />
+        </div>
+
+        {#if settings.activation_mode === "toggle"}
+          <div class="flex items-center justify-between">
+            <label for="toggle-auto-stop" class="text-sm"
+              >{t("settings.toggle_auto_stop")}</label
+            >
+            <input
+              id="toggle-auto-stop"
+              type="checkbox"
+              checked={settings.toggle_auto_stop_enabled}
+              onchange={(e) =>
+                saveSetting(
+                  "toggle_auto_stop_enabled",
+                  (e.target as HTMLInputElement).checked,
+                )}
+              class="h-4 w-4 rounded accent-accent"
+            />
+          </div>
+
+          {#if settings.toggle_auto_stop_enabled}
+            <div class="flex items-center justify-between">
+              <label for="silence-cutoff" class="text-sm"
+                >{t("settings.silence_cutoff")}</label
+              >
+              <input
+                id="silence-cutoff"
+                type="number"
+                min="0.5"
+                max="10"
+                step="0.5"
+                value={settings.silence_cutoff_seconds}
+                onchange={(e) =>
+                  saveSetting(
+                    "silence_cutoff_seconds",
+                    parseFloat((e.target as HTMLInputElement).value) || 1.5,
+                  )}
+                class="w-24 rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+              />
+            </div>
+          {/if}
+        {/if}
       </div>
     </section>
 
@@ -195,18 +297,26 @@
         </div>
 
         <div class="flex items-center justify-between">
-          <label for="denoise" class="text-sm">{t("settings.denoise")}</label>
-          <input
-            id="denoise"
-            type="checkbox"
-            checked={settings.denoise_enabled}
+          <label for="noise-suppression" class="text-sm"
+            >{t("settings.noise_suppression")}</label
+          >
+          <select
+            id="noise-suppression"
+            value={settings.noise_suppression_level}
             onchange={(e) =>
               saveSetting(
-                "denoise_enabled",
-                (e.target as HTMLInputElement).checked,
+                "noise_suppression_level",
+                (e.target as HTMLSelectElement).value,
               )}
-            class="h-4 w-4 rounded accent-accent"
-          />
+            class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+          >
+            <option value="off">{t("settings.suppression_off")}</option>
+            <option value="light">{t("settings.suppression_light")}</option>
+            <option value="moderate">{t("settings.suppression_moderate")}</option>
+            <option value="aggressive"
+              >{t("settings.suppression_aggressive")}</option
+            >
+          </select>
         </div>
       </div>
     </section>
