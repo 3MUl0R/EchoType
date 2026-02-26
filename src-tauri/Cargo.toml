@@ -52,5 +52,8 @@ futures-util = "0.3"
 rusqlite = { version = "0.34", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

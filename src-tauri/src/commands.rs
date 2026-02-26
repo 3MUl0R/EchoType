@@ -496,3 +496,207 @@ pub async fn copy_history_text(state: State<'_, AppState>, id: i64) -> Result<St
 
     Ok(entry.text)
 }
+
+// --- Profile Commands ---
+
+#[tauri::command]
+pub async fn list_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::profiles::Profile>, String> {
+    let conn = state.db.lock().await;
+    crate::db::profiles::list(&conn)
+}
+
+#[tauri::command]
+pub async fn get_profile(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<Option<crate::db::profiles::Profile>, String> {
+    let conn = state.db.lock().await;
+    crate::db::profiles::get_by_id(&conn, id)
+}
+
+#[tauri::command]
+pub async fn create_profile(
+    state: State<'_, AppState>,
+    name: String,
+    app_identifier: String,
+    app_identifier_type: String,
+) -> Result<i64, String> {
+    let id_type = crate::db::profiles::AppIdentifierType::from_str(&app_identifier_type);
+    let conn = state.db.lock().await;
+    crate::db::profiles::create(
+        &conn,
+        &crate::db::profiles::CreateProfileParams {
+            name: &name,
+            app_identifier: &app_identifier,
+            app_identifier_type: &id_type,
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn update_profile(
+    state: State<'_, AppState>,
+    id: i64,
+    name: String,
+    app_identifier: String,
+    app_identifier_type: String,
+) -> Result<(), String> {
+    let id_type = crate::db::profiles::AppIdentifierType::from_str(&app_identifier_type);
+    let conn = state.db.lock().await;
+    crate::db::profiles::update(&conn, id, &name, &app_identifier, &id_type)
+}
+
+#[tauri::command]
+pub async fn delete_profile(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::db::profiles::delete(&conn, id)
+}
+
+#[tauri::command]
+pub async fn get_profile_settings(
+    state: State<'_, AppState>,
+    profile_id: i64,
+) -> Result<Vec<(String, String)>, String> {
+    let conn = state.db.lock().await;
+    crate::db::profiles::get_all_settings(&conn, profile_id)
+}
+
+#[tauri::command]
+pub async fn set_profile_setting(
+    state: State<'_, AppState>,
+    profile_id: i64,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::db::profiles::set_setting(&conn, profile_id, &key, &value)
+}
+
+#[tauri::command]
+pub async fn remove_profile_setting(
+    state: State<'_, AppState>,
+    profile_id: i64,
+    key: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::db::profiles::remove_setting(&conn, profile_id, &key)
+}
+
+// --- Vocabulary Commands ---
+
+#[tauri::command]
+pub async fn list_vocabulary_collections(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::vocabulary::VocabularyCollection>, String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::list_collections(&conn)
+}
+
+#[tauri::command]
+pub async fn create_vocabulary_collection(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<i64, String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::create_collection(&conn, &name)
+}
+
+#[tauri::command]
+pub async fn rename_vocabulary_collection(
+    state: State<'_, AppState>,
+    id: i64,
+    name: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::rename_collection(&conn, id, &name)
+}
+
+#[tauri::command]
+pub async fn delete_vocabulary_collection(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::delete_collection(&conn, id)
+}
+
+#[tauri::command]
+pub async fn list_vocabulary_entries(
+    state: State<'_, AppState>,
+    collection_id: i64,
+) -> Result<Vec<crate::db::vocabulary::VocabularyEntry>, String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::list_entries(&conn, collection_id)
+}
+
+#[tauri::command]
+pub async fn add_vocabulary_entry(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    correction: String,
+    aliases: Vec<String>,
+) -> Result<i64, String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::add_entry(&conn, collection_id, &correction, &aliases)
+}
+
+#[tauri::command]
+pub async fn update_vocabulary_entry(
+    state: State<'_, AppState>,
+    id: i64,
+    correction: String,
+    aliases: Vec<String>,
+) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::update_entry(&conn, id, &correction, &aliases)
+}
+
+#[tauri::command]
+pub async fn delete_vocabulary_entry(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::delete_entry(&conn, id)
+}
+
+#[tauri::command]
+pub async fn vocabulary_entry_count(
+    state: State<'_, AppState>,
+    collection_id: i64,
+) -> Result<i64, String> {
+    let conn = state.db.lock().await;
+    crate::db::vocabulary::entry_count(&conn, collection_id)
+}
+
+#[tauri::command]
+pub async fn import_vocabulary_json(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    entries: Vec<crate::db::vocabulary::VocabularyEntry>,
+) -> Result<u32, String> {
+    let conn = state.db.lock().await;
+    let mut count = 0u32;
+    for entry in &entries {
+        crate::db::vocabulary::add_entry(&conn, collection_id, &entry.correction, &entry.aliases)?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+// --- Private Mode Commands ---
+
+#[tauri::command]
+pub async fn toggle_private_mode(state: State<'_, AppState>) -> Result<bool, String> {
+    let conn = state.db.lock().await;
+    let current =
+        crate::settings::get_typed::<bool>(&conn, crate::settings::keys::PRIVATE_MODE_ENABLED)
+            .unwrap_or(false);
+    let new_value = !current;
+    crate::settings::set(
+        &conn,
+        crate::settings::keys::PRIVATE_MODE_ENABLED,
+        &serde_json::to_string(&new_value).unwrap(),
+    )?;
+    info!(private_mode = new_value, "Private mode toggled");
+    Ok(new_value)
+}

@@ -1,6 +1,7 @@
 pub mod capture;
 pub mod denoise;
 pub mod feedback;
+pub mod mute;
 pub mod pipeline;
 #[allow(dead_code)]
 pub mod playback;

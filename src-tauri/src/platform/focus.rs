@@ -1,10 +1,14 @@
 use tracing::{debug, info, warn};
 
+use crate::db::profiles::AppIdentifierType;
+
 /// Represents the target window/app that was focused when dictation started.
 #[derive(Debug, Clone)]
 pub struct FocusTarget {
     /// Platform-specific identifier for the focused application.
     pub app_id: String,
+    /// Type of identifier (for profile matching).
+    pub id_type: AppIdentifierType,
 }
 
 /// Capture the currently focused application.
@@ -40,7 +44,10 @@ fn platform_capture_focus() -> Option<FocusTarget> {
     if output.status.success() {
         let app_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !app_id.is_empty() {
-            return Some(FocusTarget { app_id });
+            return Some(FocusTarget {
+                app_id,
+                id_type: AppIdentifierType::BundleId,
+            });
         }
     }
 
@@ -92,7 +99,10 @@ fn platform_capture_focus() -> Option<FocusTarget> {
     if output.status.success() {
         let window_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !window_id.is_empty() {
-            return Some(FocusTarget { app_id: window_id });
+            return Some(FocusTarget {
+                app_id: window_id,
+                id_type: AppIdentifierType::WmClass,
+            });
         }
     }
 
@@ -121,6 +131,7 @@ mod tests {
     fn focus_target_debug() {
         let target = FocusTarget {
             app_id: "com.example.app".to_string(),
+            id_type: crate::db::profiles::AppIdentifierType::BundleId,
         };
         let debug = format!("{target:?}");
         assert!(debug.contains("com.example.app"));

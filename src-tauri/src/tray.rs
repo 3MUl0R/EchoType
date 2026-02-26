@@ -20,12 +20,14 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to create menu item: {e}"))?;
     let history = MenuItem::with_id(app, "history", "History", true, None::<&str>)
         .map_err(|e| format!("Failed to create menu item: {e}"))?;
+    let private = MenuItem::with_id(app, "private", "Private Mode", true, None::<&str>)
+        .map_err(|e| format!("Failed to create menu item: {e}"))?;
     let sep = PredefinedMenuItem::separator(app)
         .map_err(|e| format!("Failed to create separator: {e}"))?;
     let quit = MenuItem::with_id(app, "quit", "Quit EchoType", true, None::<&str>)
         .map_err(|e| format!("Failed to create menu item: {e}"))?;
 
-    let menu = Menu::with_items(app, &[&show, &settings, &history, &sep, &quit])
+    let menu = Menu::with_items(app, &[&show, &settings, &history, &private, &sep, &quit])
         .map_err(|e| format!("Failed to create tray menu: {e}"))?;
 
     let idle_icon = make_icon(&DictationState::Idle);
@@ -48,6 +50,29 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
             "history" => {
                 show_main_window(app);
                 let _ = app.emit("navigate", "history");
+            }
+            "private" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state: tauri::State<'_, crate::AppState> = app.state();
+                    let new_value = {
+                        let conn = state.db.lock().await;
+                        let current = crate::settings::get_typed::<bool>(
+                            &conn,
+                            crate::settings::keys::PRIVATE_MODE_ENABLED,
+                        )
+                        .unwrap_or(false);
+                        let nv = !current;
+                        let _ = crate::settings::set(
+                            &conn,
+                            crate::settings::keys::PRIVATE_MODE_ENABLED,
+                            &serde_json::to_string(&nv).unwrap(),
+                        );
+                        nv
+                    };
+                    info!(private_mode = new_value, "Private mode toggled via tray");
+                    let _ = app.emit("private-mode-changed", new_value);
+                });
             }
             _ => {}
         })

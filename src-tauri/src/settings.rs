@@ -31,6 +31,9 @@ pub mod keys {
     pub const AUTO_SUBMIT_DELAY_MS: &str = "auto_submit_delay_ms";
     pub const STREAMING_ENABLED: &str = "streaming_enabled";
     pub const EDIT_BUFFER_ENABLED: &str = "edit_buffer_enabled";
+    pub const CUSTOM_VOCABULARY_ID: &str = "custom_vocabulary_id";
+    pub const PRIVATE_MODE_ENABLED: &str = "private_mode_enabled";
+    pub const MUTE_SYSTEM_AUDIO: &str = "mute_system_audio";
 }
 
 /// All user-facing settings with their current values.
@@ -61,6 +64,9 @@ pub struct AllSettings {
     pub auto_submit_delay_ms: u64,
     pub streaming_enabled: bool,
     pub edit_buffer_enabled: bool,
+    pub custom_vocabulary_id: Option<i64>,
+    pub private_mode_enabled: bool,
+    pub mute_system_audio: bool,
 }
 
 /// Default values for all settings.
@@ -95,6 +101,9 @@ fn default_for(key: &str) -> Option<String> {
         keys::AUTO_SUBMIT_DELAY_MS => "100",
         keys::STREAMING_ENABLED => "true",
         keys::EDIT_BUFFER_ENABLED => "false",
+        keys::CUSTOM_VOCABULARY_ID => "null",
+        keys::PRIVATE_MODE_ENABLED => "false",
+        keys::MUTE_SYSTEM_AUDIO => "false",
         _ => return None,
     };
     Some(val.to_string())
@@ -115,6 +124,23 @@ pub fn get_typed<T: serde::de::DeserializeOwned>(
 ) -> Result<T, String> {
     let raw = get(conn, key)?;
     serde_json::from_str(&raw).map_err(|e| format!("Invalid setting value for '{key}': {e}"))
+}
+
+/// Get a typed setting with profile override: profile → global → default.
+pub fn get_typed_with_profile<T: serde::de::DeserializeOwned>(
+    conn: &Connection,
+    key: &str,
+    profile_id: Option<i64>,
+) -> Result<T, String> {
+    // Check profile override first
+    if let Some(pid) = profile_id {
+        if let Ok(Some(val)) = crate::db::profiles::get_setting(conn, pid, key) {
+            return serde_json::from_str(&val)
+                .map_err(|e| format!("Invalid profile setting for '{key}': {e}"));
+        }
+    }
+    // Fall back to global
+    get_typed(conn, key)
 }
 
 /// Set a setting value (JSON-encoded).
@@ -159,6 +185,9 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         auto_submit_delay_ms: get_typed(conn, keys::AUTO_SUBMIT_DELAY_MS)?,
         streaming_enabled: get_typed(conn, keys::STREAMING_ENABLED)?,
         edit_buffer_enabled: get_typed(conn, keys::EDIT_BUFFER_ENABLED)?,
+        custom_vocabulary_id: get_typed(conn, keys::CUSTOM_VOCABULARY_ID).ok().flatten(),
+        private_mode_enabled: get_typed(conn, keys::PRIVATE_MODE_ENABLED)?,
+        mute_system_audio: get_typed(conn, keys::MUTE_SYSTEM_AUDIO)?,
     })
 }
 
@@ -246,6 +275,9 @@ mod tests {
             keys::AUTO_SUBMIT_DELAY_MS,
             keys::STREAMING_ENABLED,
             keys::EDIT_BUFFER_ENABLED,
+            keys::CUSTOM_VOCABULARY_ID,
+            keys::PRIVATE_MODE_ENABLED,
+            keys::MUTE_SYSTEM_AUDIO,
         ] {
             let val = default_for(key).unwrap();
             assert!(
@@ -313,6 +345,9 @@ mod tests {
         assert_eq!(all.auto_submit_delay_ms, 100);
         assert!(all.streaming_enabled);
         assert!(!all.edit_buffer_enabled);
+        assert!(all.custom_vocabulary_id.is_none());
+        assert!(!all.private_mode_enabled);
+        assert!(!all.mute_system_audio);
     }
 
     #[test]

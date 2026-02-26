@@ -1,4 +1,5 @@
 pub mod streaming;
+pub mod vocabulary;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -88,6 +89,21 @@ impl DictationManager {
         // Start audio capture (blocking I/O, but short-lived)
         let app_state: tauri::State<'_, AppState> = app.state();
 
+        // Match focused app to a profile
+        if let Some(ref target) = focus_target {
+            let profile = {
+                let conn = app_state.db.lock().await;
+                crate::db::profiles::find_by_app(&conn, &target.app_id, &target.id_type)
+                    .unwrap_or(None)
+            };
+            if let Some(p) = &profile {
+                info!(profile_id = p.id, profile_name = %p.name, "Matched app profile");
+            }
+            *app_state.active_profile_id.lock().await = profile.map(|p| p.id);
+        } else {
+            *app_state.active_profile_id.lock().await = None;
+        }
+
         // Detect selection in the target app (blocking, ~50-100ms)
         let selection = tokio::task::spawn_blocking(output::selection::detect_selection)
             .await
@@ -102,6 +118,7 @@ impl DictationManager {
             fb_volume,
             streaming_enabled,
             suppression_level,
+            mute_audio,
         ) = {
             let conn = app_state.db.lock().await;
             let device = crate::settings::get_typed::<String>(
@@ -130,6 +147,9 @@ impl DictationManager {
                 crate::settings::keys::NOISE_SUPPRESSION_LEVEL,
             )
             .unwrap_or_else(|_| "moderate".to_string());
+            let mute =
+                crate::settings::get_typed::<bool>(&conn, crate::settings::keys::MUTE_SYSTEM_AUDIO)
+                    .unwrap_or(false);
             (
                 device,
                 fallback,
@@ -137,12 +157,19 @@ impl DictationManager {
                 volume,
                 stream,
                 SuppressionLevel::from_str(&level_str),
+                mute,
             )
         };
 
-        // Play start chime BEFORE opening mic to avoid bleeding into capture
+        // Play start chime BEFORE muting/opening mic so it's audible
         if fb_enabled {
             feedback::play_chime(feedback::Chime::Start, fb_volume as f32);
+        }
+
+        // Mute system audio if enabled (after chime, before capture)
+        if mute_audio {
+            let guard = crate::audio::mute::mute_system_audio();
+            *app_state.mute_guard.lock().await = guard;
         }
 
         match capture::start_capture_with_device(selected_device.as_deref(), auto_fallback) {
@@ -212,6 +239,9 @@ impl DictationManager {
         if let Some(handle) = app_state.streaming_handle.lock().await.take() {
             handle.cancel();
         }
+
+        // Drop mute guard to restore system audio
+        app_state.mute_guard.lock().await.take();
 
         // Take the capture session
         let session = {
@@ -284,11 +314,13 @@ impl DictationManager {
         let selection = app_state.selection_state.lock().await.clone();
         let db = app_state.db.clone();
         let audio_for_history = buffer.clone();
+        let profile_id = *app_state.active_profile_id.lock().await;
 
         let pending_edit_arc = app_state.pending_edit.clone();
 
         tokio::spawn(async move {
-            // Read settings before transcription (async-safe)
+            // Read settings before transcription (profile-aware)
+            let pid = profile_id;
             let (
                 suppression_level,
                 output_method,
@@ -298,48 +330,65 @@ impl DictationManager {
                 auto_submit_key,
                 auto_submit_delay_ms,
                 edit_buffer_enabled,
+                vocab_id,
             ) = {
                 let conn = db.lock().await;
-                let level_str = crate::settings::get_typed::<String>(
+                let level_str = crate::settings::get_typed_with_profile::<String>(
                     &conn,
                     crate::settings::keys::NOISE_SUPPRESSION_LEVEL,
+                    pid,
                 )
                 .unwrap_or_else(|_| "moderate".to_string());
-                let method = crate::settings::get_typed::<output::OutputMethod>(
+                let method = crate::settings::get_typed_with_profile::<output::OutputMethod>(
                     &conn,
                     crate::settings::keys::OUTPUT_METHOD,
+                    pid,
                 )
                 .unwrap_or_else(|_| output::auto_select_method());
-                let mode = crate::settings::get_typed::<String>(
+                let mode = crate::settings::get_typed_with_profile::<String>(
                     &conn,
                     crate::settings::keys::DICTATION_MODE,
+                    pid,
                 )
                 .unwrap_or_else(|_| "formatted".to_string());
-                let punctuate = crate::settings::get_typed::<bool>(
+                let punctuate = crate::settings::get_typed_with_profile::<bool>(
                     &conn,
                     crate::settings::keys::AUTO_PUNCTUATE,
+                    pid,
                 )
                 .unwrap_or(true);
-                let submit_enabled = crate::settings::get_typed::<bool>(
+                let submit_enabled = crate::settings::get_typed_with_profile::<bool>(
                     &conn,
                     crate::settings::keys::AUTO_SUBMIT_ENABLED,
+                    pid,
                 )
                 .unwrap_or(false);
-                let submit_key_str = crate::settings::get_typed::<String>(
+                let submit_key_str = crate::settings::get_typed_with_profile::<String>(
                     &conn,
                     crate::settings::keys::AUTO_SUBMIT_KEY,
+                    pid,
                 )
                 .unwrap_or_else(|_| "enter".to_string());
-                let submit_delay = crate::settings::get_typed::<u64>(
+                let submit_delay = crate::settings::get_typed_with_profile::<u64>(
                     &conn,
                     crate::settings::keys::AUTO_SUBMIT_DELAY_MS,
+                    pid,
                 )
                 .unwrap_or(100);
-                let edit_buf = crate::settings::get_typed::<bool>(
+                let edit_buf = crate::settings::get_typed_with_profile::<bool>(
                     &conn,
                     crate::settings::keys::EDIT_BUFFER_ENABLED,
+                    pid,
                 )
                 .unwrap_or(false);
+                let vocabulary_id: Option<i64> =
+                    crate::settings::get_typed_with_profile::<Option<i64>>(
+                        &conn,
+                        crate::settings::keys::CUSTOM_VOCABULARY_ID,
+                        pid,
+                    )
+                    .ok()
+                    .flatten();
                 (
                     SuppressionLevel::from_str(&level_str),
                     method,
@@ -349,6 +398,7 @@ impl DictationManager {
                     output::AutoSubmitKey::from_str(&submit_key_str),
                     submit_delay,
                     edit_buf,
+                    vocabulary_id,
                 )
             };
 
@@ -357,7 +407,14 @@ impl DictationManager {
 
             match result {
                 Ok(raw_text) => {
-                    let text = postprocess_text(&raw_text, &dictation_mode, auto_punctuate);
+                    // Apply vocabulary corrections before postprocessing
+                    let corrected = if let Some(vid) = vocab_id {
+                        let conn = db.lock().await;
+                        vocabulary::apply_corrections(&conn, vid, &raw_text)
+                    } else {
+                        raw_text
+                    };
+                    let text = postprocess_text(&corrected, &dictation_mode, auto_punctuate);
                     let latency = release_time.elapsed().as_millis() as u64;
                     info!(
                         latency_ms = latency,
@@ -689,21 +746,27 @@ async fn save_to_history(
     _latency_ms: u64,
 ) {
     // Read settings (async-safe)
-    let (enabled, engine_id, max_count) = {
+    let (enabled, private_mode, engine_id, max_count) = {
         let conn = db.lock().await;
         let enabled =
             crate::settings::get_typed::<bool>(&conn, crate::settings::keys::HISTORY_ENABLED)
                 .unwrap_or(true);
+        let private =
+            crate::settings::get_typed::<bool>(&conn, crate::settings::keys::PRIVATE_MODE_ENABLED)
+                .unwrap_or(false);
         let engine_id =
             crate::settings::get_typed::<String>(&conn, crate::settings::keys::ACTIVE_MODEL_ID)
                 .ok();
         let max_count: i64 =
             crate::settings::get_typed(&conn, crate::settings::keys::HISTORY_RETENTION_COUNT)
                 .unwrap_or(50);
-        (enabled, engine_id, max_count)
+        (enabled, private, engine_id, max_count)
     };
 
-    if !enabled {
+    if !enabled || private_mode {
+        if private_mode {
+            info!("Private mode: skipping history save and audio storage");
+        }
         return;
     }
 

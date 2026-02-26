@@ -2,7 +2,7 @@ use rusqlite::Connection;
 use tracing::info;
 
 /// Current schema version.
-const CURRENT_VERSION: u32 = 1;
+const CURRENT_VERSION: u32 = 2;
 
 /// Run all pending migrations.
 pub fn run(conn: &Connection) -> Result<(), String> {
@@ -22,6 +22,9 @@ pub fn run(conn: &Connection) -> Result<(), String> {
 
     if version < 1 {
         migrate_v1(conn)?;
+    }
+    if version < 2 {
+        migrate_v2(conn)?;
     }
 
     conn.pragma_update(None, "user_version", CURRENT_VERSION)
@@ -67,6 +70,49 @@ fn migrate_v1(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+/// V2: Per-app profiles and custom vocabulary.
+fn migrate_v2(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS profiles (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                TEXT NOT NULL,
+            app_identifier      TEXT NOT NULL,
+            app_identifier_type TEXT NOT NULL,
+            created_at          TEXT NOT NULL,
+            UNIQUE(app_identifier, app_identifier_type)
+        );
+
+        CREATE TABLE IF NOT EXISTS profile_settings (
+            profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            key        TEXT NOT NULL,
+            value      TEXT NOT NULL,
+            PRIMARY KEY(profile_id, key)
+        );
+
+        CREATE TABLE IF NOT EXISTS vocabulary_collections (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS vocabulary_entries (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_id INTEGER NOT NULL REFERENCES vocabulary_collections(id) ON DELETE CASCADE,
+            correction    TEXT NOT NULL,
+            aliases       TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_vocab_entries_collection
+            ON vocabulary_entries(collection_id);
+        ",
+    )
+    .map_err(|e| format!("Migration v2 failed: {e}"))?;
+
+    info!("Applied migration v2");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +146,24 @@ mod tests {
         assert!(tables.contains(&"settings".to_string()));
         assert!(tables.contains(&"dictation_history".to_string()));
         assert!(tables.contains(&"model_preferences".to_string()));
+    }
+
+    #[test]
+    fn v2_creates_profile_and_vocab_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        run(&conn).unwrap();
+
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert!(tables.contains(&"profiles".to_string()));
+        assert!(tables.contains(&"profile_settings".to_string()));
+        assert!(tables.contains(&"vocabulary_collections".to_string()));
+        assert!(tables.contains(&"vocabulary_entries".to_string()));
     }
 }

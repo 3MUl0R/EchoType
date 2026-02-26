@@ -1,7 +1,9 @@
 pub mod history;
 pub mod migrations;
 pub mod models;
+pub mod profiles;
 pub mod settings;
+pub mod vocabulary;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -26,6 +28,10 @@ pub fn open(path: &Path) -> Result<DbHandle, String> {
     // Enable WAL mode for concurrent reads
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| format!("Cannot set WAL mode: {e}"))?;
+
+    // Enable foreign key enforcement (required for CASCADE deletes)
+    conn.execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|e| format!("Cannot enable foreign keys: {e}"))?;
 
     // Run migrations
     migrations::run(&conn)?;

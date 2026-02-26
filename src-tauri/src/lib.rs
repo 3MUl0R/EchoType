@@ -1,4 +1,5 @@
 mod audio;
+pub mod cli;
 mod commands;
 mod db;
 mod dictation;
@@ -37,6 +38,8 @@ pub struct AppState {
     pub selection_state: Arc<Mutex<output::selection::SelectionState>>,
     pub streaming_handle: Arc<Mutex<Option<dictation::streaming::StreamingHandle>>>,
     pub pending_edit: Arc<Mutex<Option<dictation::PendingEdit>>>,
+    pub active_profile_id: Arc<Mutex<Option<i64>>>,
+    pub mute_guard: Arc<Mutex<Option<audio::mute::MuteGuard>>>,
 }
 
 #[tauri::command]
@@ -97,6 +100,8 @@ pub fn run() {
         selection_state: Arc::new(Mutex::new(output::selection::SelectionState::NoSelection)),
         streaming_handle: Arc::new(Mutex::new(None)),
         pending_edit: Arc::new(Mutex::new(None)),
+        active_profile_id: Arc::new(Mutex::new(None)),
+        mute_guard: Arc::new(Mutex::new(None)),
     };
 
     tauri::Builder::default()
@@ -134,6 +139,25 @@ pub fn run() {
             commands::edit_buffer_insert,
             commands::edit_buffer_discard,
             commands::edit_buffer_copy,
+            commands::list_profiles,
+            commands::get_profile,
+            commands::create_profile,
+            commands::update_profile,
+            commands::delete_profile,
+            commands::get_profile_settings,
+            commands::set_profile_setting,
+            commands::remove_profile_setting,
+            commands::list_vocabulary_collections,
+            commands::create_vocabulary_collection,
+            commands::rename_vocabulary_collection,
+            commands::delete_vocabulary_collection,
+            commands::list_vocabulary_entries,
+            commands::add_vocabulary_entry,
+            commands::update_vocabulary_entry,
+            commands::delete_vocabulary_entry,
+            commands::vocabulary_entry_count,
+            commands::import_vocabulary_json,
+            commands::toggle_private_mode,
         ])
         .setup(|app| {
             // Register the dictation hotkey

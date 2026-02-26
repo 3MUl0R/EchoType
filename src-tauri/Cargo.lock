@@ -1148,6 +1148,7 @@ dependencies = [
  "enigo",
  "futures-util",
  "hound",
+ "libc",
  "nnnoiseless",
  "reqwest",
  "rodio",

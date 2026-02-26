@@ -15,6 +15,18 @@ struct Cli {
     #[arg(long)]
     stdout: bool,
 
+    /// Single-capture mode (use with --stdout)
+    #[arg(long)]
+    once: bool,
+
+    /// List installed models
+    #[arg(long)]
+    list_models: bool,
+
+    /// Set the active model by ID
+    #[arg(long, value_name = "MODEL_ID")]
+    set_model: Option<String>,
+
     /// Set log verbosity (trace, debug, info, warn, error)
     #[arg(long, default_value = "info")]
     log_level: String,
@@ -23,18 +35,29 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
+    if cli.log_level != "info" {
+        unsafe { std::env::set_var("ECHOTYPE_LOG", &cli.log_level) };
+    }
+
+    if cli.list_models {
+        echotype_lib::cli::list_models();
+        return;
+    }
+
+    if let Some(ref model_id) = cli.set_model {
+        echotype_lib::cli::set_model(model_id);
+        return;
+    }
+
     if cli.daemon {
-        eprintln!("Daemon mode is not yet implemented.");
+        eprintln!("Daemon mode with IPC is planned for a future release.");
+        eprintln!("Use --stdout for headless transcription to stdout.");
         std::process::exit(1);
     }
 
     if cli.stdout {
-        eprintln!("Pipe mode is not yet implemented.");
-        std::process::exit(1);
-    }
-
-    if cli.log_level != "info" {
-        unsafe { std::env::set_var("ECHOTYPE_LOG", &cli.log_level) };
+        echotype_lib::cli::pipe::run(cli.once);
+        return;
     }
 
     echotype_lib::run();
