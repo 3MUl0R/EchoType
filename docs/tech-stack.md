@@ -370,6 +370,33 @@ echotype/
 └── README.md
 ```
 
+## AI-First Developer Experience
+
+EchoType treats AI coding agents as first-class operators. Development tooling must be
+usable by both humans and local agents with the same command surface.
+
+### Command Entry Points (Contract)
+
+The repository should provide stable non-interactive wrappers:
+
+| Command | Purpose |
+|---------|---------|
+| `./scripts/agent/bootstrap` | Install toolchains and project dependencies |
+| `./scripts/agent/dev` | Start the app from source |
+| `./scripts/agent/check` | Run lint, tests, and validation checks |
+| `./scripts/agent/logs` | Print recent logs and diagnostics |
+
+These wrappers can call `cargo`, `npm`, and Tauri commands internally, but the public
+entry points should stay stable so user prompts and AI workflows do not break.
+
+### Automation Requirements
+
+- Commands must run non-interactively by default.
+- Exit codes must be deterministic and meaningful.
+- Validation output should be parseable (`--json` modes where practical).
+- Setup should avoid hidden manual steps that an agent cannot infer.
+- Logs must be available by CLI and stored in predictable local paths.
+
 ## Dependency Management
 
 ### Principles

@@ -280,6 +280,23 @@ without rewrites.
   Framework TBD, but the architecture should support localized settings and
   documentation from the start.
 
+## 10. AI-First Development & Operations
+
+- **AI-operable repository contract** - The repo must support a local coding agent
+  running end-to-end development tasks with minimal human intervention:
+  clone, bootstrap, run, debug, fix, test, and commit.
+- **Script-first workflows** - Development tasks should be exposed through stable
+  non-interactive command entry points (bootstrap, run, check, logs) instead of
+  undocumented manual steps.
+- **Agent-readable diagnostics** - Runtime logs and checks should be machine-readable
+  and accessible by CLI, not only GUI, so an agent can inspect failures and recover.
+- **Deterministic command behavior** - Commands return clear exit codes and
+  predictable output so agents can branch correctly on success/failure.
+- **Human + AI docs parity** - Documentation must be usable directly by a human and
+  by an AI agent without requiring hidden tribal knowledge.
+- **Repository-first installation path** - "Install from repo with your AI agent"
+  is a first-class onboarding path, not a secondary contributor flow.
+
 ---
 
 ## Design Principles
@@ -291,6 +308,8 @@ without rewrites.
 4. **Respect the user** - No accounts, no nags, no upsells, no dark patterns.
 5. **Build for power users, accessible to everyone** - Simple out of the box,
    infinitely configurable underneath.
+6. **AI-operable by default** - A local coding agent should be able to run and
+   maintain EchoType from the repository without bespoke handholding.
 
 ---
 
