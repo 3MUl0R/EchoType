@@ -95,3 +95,10 @@ pub async fn load_model(state: State<'_, AppState>, path: String) -> Result<Stri
     state.engine_manager.load(Box::new(engine)).await;
     Ok(name)
 }
+
+#[tauri::command]
+pub async fn get_dictation_state(
+    state: State<'_, AppState>,
+) -> Result<crate::dictation::DictationState, String> {
+    Ok(state.dictation_manager.current_state().await)
+}

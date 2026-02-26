@@ -6,6 +6,7 @@ use tracing::{info, warn};
 use super::{EngineError, SttEngine, TranscribeRequest, Transcription};
 
 /// Manages the active STT engine. Only one engine is loaded at a time.
+#[derive(Clone)]
 pub struct EngineManager {
     engine: Arc<Mutex<Option<Arc<dyn SttEngine>>>>,
 }

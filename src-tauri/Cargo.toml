@@ -36,5 +36,12 @@ hound = "3.5"
 # STT
 whisper-rs = { version = "0.15", features = ["tracing_backend"] }
 
+# Global hotkey
+tauri-plugin-global-shortcut = "2"
+
+# Text insertion
+enigo = "0.3"
+arboard = { version = "3", features = ["wayland-data-control"] }
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

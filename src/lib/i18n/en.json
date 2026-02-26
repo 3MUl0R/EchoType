@@ -16,5 +16,8 @@
   "transcription.error": "Transcription error",
   "error.no_mic": "No microphone available.",
   "error.capture_failed": "Failed to start recording.",
-  "error.no_model": "No model loaded. Load a Whisper model first."
+  "error.no_model": "No model loaded. Load a Whisper model first.",
+  "dictation.recording": "Recording",
+  "dictation.transcribing": "Transcribing",
+  "dictation.inserting": "Inserting"
 }

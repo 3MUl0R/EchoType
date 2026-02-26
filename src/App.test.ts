@@ -4,7 +4,15 @@ import App from "./App.svelte";
 
 // Mock the Tauri core invoke function
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn().mockResolvedValue("pong"),
+  invoke: vi.fn().mockImplementation((cmd: string) => {
+    if (cmd === "get_dictation_state") return Promise.resolve("idle");
+    return Promise.resolve("pong");
+  }),
+}));
+
+// Mock the Tauri event API
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
 describe("App", () => {
@@ -45,5 +53,12 @@ describe("App", () => {
     });
     expect(section).toBeTruthy();
     expect(section.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("does not show dictation status badge when idle", () => {
+    render(App);
+    expect(screen.queryByText("Recording")).toBeNull();
+    expect(screen.queryByText("Transcribing")).toBeNull();
+    expect(screen.queryByText("Inserting")).toBeNull();
   });
 });
