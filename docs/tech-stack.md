@@ -370,6 +370,87 @@ echotype/
 └── README.md
 ```
 
+## Dependency Management
+
+### Principles
+
+EchoType's binary runs with full system access -- microphone, keystrokes, clipboard,
+file system. Every external dependency that compiles into that binary is attack surface.
+We treat dependency management as a security concern, not a convenience concern.
+
+- **Update deliberately, not automatically.** Dependencies are updated by a human who
+  reviews the diff, not by a bot that opens PRs on a schedule.
+- **Vendor the high-risk side.** Rust crates compile into the native binary and run with
+  full system privileges. npm packages compile into sandboxed JS in a webview. We vendor
+  the Rust side.
+- **Minimize transitive dependencies.** Prefer crates with small dependency trees. Prefer
+  pure Rust crates over those with C bindings where the tradeoff is reasonable.
+
+### Rust: Vendored Dependencies
+
+All Rust crate sources are checked into the repository via `cargo vendor`. Builds never
+fetch from crates.io or any other registry.
+
+```
+cargo vendor vendor/
+```
+
+This creates a `vendor/` directory containing the full source of every direct and
+transitive dependency. A `.cargo/config.toml` at the repo root tells Cargo to use it:
+
+```toml
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+```
+
+**Updating dependencies:**
+1. Edit version in `Cargo.toml` as needed.
+2. Run `cargo vendor vendor/` to refresh the vendor directory.
+3. Review the diff -- `git diff vendor/` shows exactly what changed.
+4. Commit the update with a message describing why the update was made.
+
+**ONNX Runtime exception:** The `ort` crate (used by `voice_activity_detector`) downloads
+a prebuilt ONNX Runtime binary from Microsoft at build time. This binary is cached in CI
+and pointed to via the `ORT_LIB_LOCATION` environment variable, so builds do not make
+network requests. The ORT binary version is pinned and its checksum verified.
+
+### npm: Lockfile-Pinned, Not Vendored
+
+npm packages are lower risk for this project -- they compile into JS that runs inside
+Tauri's webview sandbox. The JS layer can only call Rust backend functions that we
+explicitly expose as Tauri commands. It cannot access the file system, network, or OS
+APIs directly.
+
+npm dependencies are pinned via `package-lock.json` (exact versions, integrity hashes).
+We do not vendor `node_modules/`. The lockfile is committed and CI uses `npm ci` (which
+installs from the lockfile exactly, failing if it's out of sync with `package.json`).
+
+### CI Auditing
+
+| Tool | Runs on | Purpose |
+|------|---------|---------|
+| `cargo audit` | Every PR and push to main | Check vendored Rust crates against RustSec advisory database |
+| `npm audit` | Every PR and push to main | Check npm packages against known vulnerabilities |
+
+`cargo audit` runs against the vendored source, not the registry. It flags known CVEs
+in any crate in the dependency tree. A flagged advisory does not necessarily block the
+build -- some advisories are informational or not applicable -- but it ensures we are
+aware and can make an informed decision.
+
+### Supply Chain Summary
+
+| Layer | Strategy | Fetches at build time? | Ships in binary? |
+|-------|----------|----------------------|-----------------|
+| Rust crates | Vendored in repo | No | Yes (compiled) |
+| whisper.cpp | Compiled from vendored C source via `whisper-rs-sys` | No | Yes |
+| SQLite | Compiled from vendored C source via `rusqlite` bundled feature | No | Yes |
+| ONNX Runtime | Prebuilt binary from Microsoft, cached and pinned | No (cached) | Yes (linked) |
+| npm packages | Lockfile-pinned, installed from registry | Yes | No (sandboxed JS in webview) |
+| Silero VAD model | ONNX weights bundled by `voice_activity_detector` crate | No (vendored) | Yes (embedded) |
+
 ---
 
 *This document specifies what we build with. The product spec defines what we build.
