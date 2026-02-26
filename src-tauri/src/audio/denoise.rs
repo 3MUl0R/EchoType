@@ -1,15 +1,27 @@
-use tracing::debug;
+use tracing::{debug, warn};
 
 const FRAME_SIZE: usize = 480; // 10ms at 48kHz
+const EXPECTED_SAMPLE_RATE: u32 = 48000;
 const AMPLITUDE_SCALE: f32 = 32767.0;
 
 /// Denoise 48kHz f32 audio using nnnoiseless.
 ///
 /// nnnoiseless expects 480-sample frames at 48kHz with amplitudes in the
 /// 16-bit range (-32768..32767). We scale f32 (-1.0..1.0) samples accordingly.
-pub fn denoise(samples: &[f32], _sample_rate: u32) -> Vec<f32> {
+///
+/// Returns the input unchanged if the sample rate is not 48kHz.
+pub fn denoise(samples: &[f32], sample_rate: u32) -> Vec<f32> {
     if samples.is_empty() {
         return Vec::new();
+    }
+
+    if sample_rate != EXPECTED_SAMPLE_RATE {
+        warn!(
+            sample_rate,
+            expected = EXPECTED_SAMPLE_RATE,
+            "Skipping denoise: nnnoiseless requires 48kHz input"
+        );
+        return samples.to_vec();
     }
 
     let mut state = nnnoiseless::DenoiseState::new();
@@ -86,5 +98,13 @@ mod tests {
         let input = vec![0.05f32; 480]; // Exactly one frame
         let output = denoise(&input, 48000);
         assert_eq!(output.len(), input.len());
+    }
+
+    #[test]
+    fn denoise_skips_non_48k_input() {
+        let input = vec![0.1f32; 1000];
+        let output = denoise(&input, 44100);
+        // Should return input unchanged when not 48kHz
+        assert_eq!(output, input);
     }
 }

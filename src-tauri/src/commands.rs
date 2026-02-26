@@ -13,19 +13,22 @@ pub fn list_audio_devices() -> Vec<AudioDeviceInfo> {
 
 #[tauri::command]
 pub async fn start_capture(state: State<'_, AppState>) -> Result<(), String> {
-    let session = capture::start_capture().map_err(|e| e.to_string())?;
+    // Check lock first before starting hardware capture
     let mut guard = state.capture_session.lock().await;
     if guard.is_some() {
         return Err("Capture already in progress".to_string());
     }
+    let session = capture::start_capture().map_err(|e| e.to_string())?;
     *guard = Some(session);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn stop_capture(state: State<'_, AppState>) -> Result<f64, String> {
-    let mut guard = state.capture_session.lock().await;
-    let session = guard.take().ok_or("No active capture session")?;
+    let session = {
+        let mut guard = state.capture_session.lock().await;
+        guard.take().ok_or("No active capture session")?
+    };
     let buffer = session.stop();
     let duration = buffer.duration_secs();
     *state.last_audio.lock().await = Some(buffer);
@@ -37,12 +40,13 @@ pub async fn transcribe_audio(
     state: State<'_, AppState>,
     language: Option<String>,
 ) -> Result<Transcription, String> {
-    let audio_guard = state.last_audio.lock().await;
-    let raw = audio_guard
-        .as_ref()
-        .ok_or("No audio to transcribe. Record something first.")?
-        .clone();
-    drop(audio_guard);
+    let raw = {
+        let audio_guard = state.last_audio.lock().await;
+        audio_guard
+            .as_ref()
+            .ok_or("No audio to transcribe. Record something first.")?
+            .clone()
+    };
 
     if raw.is_empty() {
         return Err("Audio buffer is empty".to_string());
@@ -54,9 +58,14 @@ pub async fn transcribe_audio(
         "Processing audio for transcription"
     );
 
-    // Run audio pipeline (denoise + resample to 16kHz)
-    let config = pipeline::PipelineConfig::default();
-    let processed = pipeline::process(&raw, &config)?;
+    // Run audio pipeline (denoise + resample) off the async runtime
+    let processed = tokio::task::spawn_blocking(move || {
+        let config = pipeline::PipelineConfig::default();
+        pipeline::process(&raw, &config)
+    })
+    .await
+    .map_err(|e| format!("Pipeline task failed: {e}"))?
+    .map_err(|e| format!("Audio pipeline error: {e}"))?;
 
     // Transcribe
     let request = TranscribeRequest {
@@ -73,8 +82,15 @@ pub async fn transcribe_audio(
 
 #[tauri::command]
 pub async fn load_model(state: State<'_, AppState>, path: String) -> Result<String, String> {
-    let model_path = std::path::PathBuf::from(&path);
-    let engine = WhisperEngine::new(&model_path).map_err(|e| e.to_string())?;
+    // Model loading is CPU-intensive (parsing GGML file), run off async runtime
+    let engine = tokio::task::spawn_blocking(move || {
+        let model_path = std::path::PathBuf::from(&path);
+        WhisperEngine::new(&model_path)
+    })
+    .await
+    .map_err(|e| format!("Model load task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+
     let name = engine.name().to_string();
     state.engine_manager.load(Box::new(engine)).await;
     Ok(name)

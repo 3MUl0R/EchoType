@@ -5,8 +5,8 @@
   type RecordState = "idle" | "recording" | "processing";
 
   interface Props {
-    onTranscription?: (text: string, durationMs: number) => void;
-    onError?: (error: string) => void;
+    onTranscription?: (_text: string, _durationMs: number) => void;
+    onError?: (_error: string) => void;
   }
 
   let { onTranscription, onError }: Props = $props();
@@ -29,6 +29,13 @@
     }
   }
 
+  // Clean up timer on component destroy
+  $effect(() => {
+    return () => {
+      stopTimer();
+    };
+  });
+
   function formatTime(seconds: number): string {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -42,13 +49,6 @@
       await startRecording();
     } else if (state === "recording") {
       await stopRecording();
-    }
-  }
-
-  async function handleKeyDown(event: KeyboardEvent) {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      await handleClick();
     }
   }
 
@@ -84,8 +84,8 @@
 <div class="flex flex-col items-center gap-4">
   <button
     onclick={handleClick}
-    onkeydown={handleKeyDown}
     disabled={state === "processing"}
+    aria-pressed={state === "recording"}
     aria-label={state === "idle"
       ? t("record.idle")
       : state === "recording"

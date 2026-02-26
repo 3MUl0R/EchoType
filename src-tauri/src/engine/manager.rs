@@ -7,7 +7,7 @@ use super::{EngineError, SttEngine, TranscribeRequest, Transcription};
 
 /// Manages the active STT engine. Only one engine is loaded at a time.
 pub struct EngineManager {
-    engine: Arc<Mutex<Option<Box<dyn SttEngine>>>>,
+    engine: Arc<Mutex<Option<Arc<dyn SttEngine>>>>,
 }
 
 impl EngineManager {
@@ -24,7 +24,7 @@ impl EngineManager {
         if let Some(old) = guard.as_ref() {
             info!(old_engine = old.name(), "Unloading previous engine");
         }
-        *guard = Some(engine);
+        *guard = Some(Arc::from(engine));
         info!(engine = %name, "Engine loaded");
     }
 
@@ -38,18 +38,24 @@ impl EngineManager {
     }
 
     /// Run transcription on the active engine.
+    ///
+    /// Clones the engine Arc and releases the lock before running inference,
+    /// so that load/unload/is_loaded are not blocked during transcription.
     pub async fn transcribe(
         &self,
         request: TranscribeRequest,
     ) -> Result<Transcription, EngineError> {
-        let guard = self.engine.lock().await;
-        match guard.as_ref() {
-            Some(engine) => engine.transcribe(request).await,
-            None => {
-                warn!("Transcription requested but no engine loaded");
-                Err(EngineError::NoEngineLoaded)
+        let engine = {
+            let guard = self.engine.lock().await;
+            match guard.as_ref() {
+                Some(engine) => Arc::clone(engine),
+                None => {
+                    warn!("Transcription requested but no engine loaded");
+                    return Err(EngineError::NoEngineLoaded);
+                }
             }
-        }
+        };
+        engine.transcribe(request).await
     }
 
     /// Check if an engine is currently loaded.

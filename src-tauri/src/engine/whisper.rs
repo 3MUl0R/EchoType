@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -9,7 +10,7 @@ use super::{EngineError, Language, ModelInfo, SttEngine, TranscribeRequest, Tran
 
 /// Whisper-based STT engine using whisper-rs (whisper.cpp bindings).
 pub struct WhisperEngine {
-    ctx: WhisperContext,
+    ctx: Arc<WhisperContext>,
     model_name: String,
     model_size: u64,
 }
@@ -49,7 +50,7 @@ impl WhisperEngine {
         info!(model = %model_name, "Whisper model loaded successfully");
 
         Ok(Self {
-            ctx,
+            ctx: Arc::new(ctx),
             model_name,
             model_size,
         })
@@ -69,55 +70,62 @@ impl SttEngine for WhisperEngine {
 
         let audio = request.audio;
         let language = request.language;
+        let ctx = Arc::clone(&self.ctx);
 
-        let start = Instant::now();
+        // Run blocking Whisper inference off the async runtime
+        let result = tokio::task::spawn_blocking(move || {
+            let start = Instant::now();
 
-        let mut state = self
-            .ctx
-            .create_state()
-            .map_err(|e| EngineError::TranscriptionFailed(format!("Create state: {e}")))?;
+            let mut state = ctx
+                .create_state()
+                .map_err(|e| EngineError::TranscriptionFailed(format!("Create state: {e}")))?;
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
+            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            params.set_print_progress(false);
+            params.set_print_realtime(false);
+            params.set_print_timestamps(false);
 
-        if let Some(ref lang) = language {
-            params.set_language(Some(&lang.0));
-        } else {
-            params.set_language(Some("en"));
-        }
+            if let Some(ref lang) = language {
+                params.set_language(Some(&lang.0));
+            } else {
+                params.set_language(Some("en"));
+            }
 
-        state
-            .full(params, &audio)
-            .map_err(|e| EngineError::TranscriptionFailed(format!("Inference: {e}")))?;
+            state
+                .full(params, &audio)
+                .map_err(|e| EngineError::TranscriptionFailed(format!("Inference: {e}")))?;
 
-        let num_segments = state.full_n_segments();
+            let num_segments = state.full_n_segments();
 
-        let mut text = String::new();
-        for i in 0..num_segments {
-            if let Some(segment) = state.get_segment(i) {
-                if let Ok(seg_text) = segment.to_str() {
-                    text.push_str(seg_text);
+            let mut text = String::new();
+            for i in 0..num_segments {
+                if let Some(segment) = state.get_segment(i) {
+                    if let Ok(seg_text) = segment.to_str() {
+                        text.push_str(seg_text);
+                    }
                 }
             }
-        }
 
-        let duration = start.elapsed();
-        let text = text.trim().to_string();
+            let duration = start.elapsed();
+            let text = text.trim().to_string();
 
-        debug!(
-            segments = num_segments,
-            text_len = text.len(),
-            duration_ms = duration.as_millis(),
-            "Transcription complete"
-        );
+            debug!(
+                segments = num_segments,
+                text_len = text.len(),
+                duration_ms = duration.as_millis(),
+                "Transcription complete"
+            );
 
-        Ok(Transcription {
-            text,
-            language: language.or_else(|| Some(Language("en".to_string()))),
-            duration_ms: duration.as_millis() as u64,
+            Ok(Transcription {
+                text,
+                language: language.or_else(|| Some(Language("en".to_string()))),
+                duration_ms: duration.as_millis() as u64,
+            })
         })
+        .await
+        .map_err(|e| EngineError::TranscriptionFailed(format!("Task join: {e}")))?;
+
+        result
     }
 
     fn supported_languages(&self) -> Vec<Language> {
