@@ -34,6 +34,11 @@ pub mod keys {
     pub const CUSTOM_VOCABULARY_ID: &str = "custom_vocabulary_id";
     pub const PRIVATE_MODE_ENABLED: &str = "private_mode_enabled";
     pub const MUTE_SYSTEM_AUDIO: &str = "mute_system_audio";
+    pub const ENGINE_TYPE: &str = "engine_type";
+    pub const CLOUD_PROVIDER: &str = "cloud_provider";
+    pub const CLOUD_OPT_IN_CONFIRMED: &str = "cloud_opt_in_confirmed";
+    pub const CLOUD_FALLBACK_LOCAL: &str = "cloud_fallback_local";
+    pub const OPENAI_MODEL: &str = "openai_model";
 }
 
 /// All user-facing settings with their current values.
@@ -67,6 +72,11 @@ pub struct AllSettings {
     pub custom_vocabulary_id: Option<i64>,
     pub private_mode_enabled: bool,
     pub mute_system_audio: bool,
+    pub engine_type: String,
+    pub cloud_provider: Option<String>,
+    pub cloud_opt_in_confirmed: bool,
+    pub cloud_fallback_local: bool,
+    pub openai_model: String,
 }
 
 /// Default values for all settings.
@@ -104,6 +114,11 @@ fn default_for(key: &str) -> Option<String> {
         keys::CUSTOM_VOCABULARY_ID => "null",
         keys::PRIVATE_MODE_ENABLED => "false",
         keys::MUTE_SYSTEM_AUDIO => "false",
+        keys::ENGINE_TYPE => "\"local\"",
+        keys::CLOUD_PROVIDER => "null",
+        keys::CLOUD_OPT_IN_CONFIRMED => "false",
+        keys::CLOUD_FALLBACK_LOCAL => "true",
+        keys::OPENAI_MODEL => "\"whisper-1\"",
         _ => return None,
     };
     Some(val.to_string())
@@ -188,6 +203,11 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         custom_vocabulary_id: get_typed(conn, keys::CUSTOM_VOCABULARY_ID).ok().flatten(),
         private_mode_enabled: get_typed(conn, keys::PRIVATE_MODE_ENABLED)?,
         mute_system_audio: get_typed(conn, keys::MUTE_SYSTEM_AUDIO)?,
+        engine_type: get_typed(conn, keys::ENGINE_TYPE)?,
+        cloud_provider: get_typed(conn, keys::CLOUD_PROVIDER).ok().flatten(),
+        cloud_opt_in_confirmed: get_typed(conn, keys::CLOUD_OPT_IN_CONFIRMED)?,
+        cloud_fallback_local: get_typed(conn, keys::CLOUD_FALLBACK_LOCAL)?,
+        openai_model: get_typed(conn, keys::OPENAI_MODEL)?,
     })
 }
 
@@ -278,6 +298,11 @@ mod tests {
             keys::CUSTOM_VOCABULARY_ID,
             keys::PRIVATE_MODE_ENABLED,
             keys::MUTE_SYSTEM_AUDIO,
+            keys::ENGINE_TYPE,
+            keys::CLOUD_PROVIDER,
+            keys::CLOUD_OPT_IN_CONFIRMED,
+            keys::CLOUD_FALLBACK_LOCAL,
+            keys::OPENAI_MODEL,
         ] {
             let val = default_for(key).unwrap();
             assert!(
@@ -348,6 +373,11 @@ mod tests {
         assert!(all.custom_vocabulary_id.is_none());
         assert!(!all.private_mode_enabled);
         assert!(!all.mute_system_audio);
+        assert_eq!(all.engine_type, "local");
+        assert!(all.cloud_provider.is_none());
+        assert!(!all.cloud_opt_in_confirmed);
+        assert!(all.cloud_fallback_local);
+        assert_eq!(all.openai_model, "whisper-1");
     }
 
     #[test]

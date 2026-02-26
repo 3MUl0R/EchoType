@@ -32,6 +32,11 @@
     custom_vocabulary_id: number | null;
     private_mode_enabled: boolean;
     mute_system_audio: boolean;
+    engine_type: string;
+    cloud_provider: string | null;
+    cloud_opt_in_confirmed: boolean;
+    cloud_fallback_local: boolean;
+    openai_model: string;
   }
 
   interface AudioDevice {
@@ -77,6 +82,19 @@
   let showAddEntry = $state(false);
   let entryForm = $state({ correction: "", aliases: "" });
   let editingEntryId: number | null = $state(null);
+
+  interface CloudProviderInfo {
+    id: string;
+    name: string;
+    has_key: boolean;
+    masked_last4: string | null;
+  }
+
+  let cloudProviders: CloudProviderInfo[] = $state([]);
+  let cloudKeyInput: Record<string, string> = $state({});
+  let cloudKeyEditing: string | null = $state(null);
+  let cloudKeyTesting: string | null = $state(null);
+  let cloudKeyValid: Record<string, boolean | null> = $state({});
 
   let errorMessage = $state("");
   let successMessage = $state("");
@@ -382,11 +400,67 @@
     input.click();
   }
 
+  async function loadCloudProviders() {
+    try {
+      cloudProviders = await invoke<CloudProviderInfo[]>("list_cloud_providers");
+    } catch (e) {
+      console.error("Failed to load cloud providers:", e);
+    }
+  }
+
+  function startEditCloudKey(providerId: string) {
+    cloudKeyEditing = providerId;
+    cloudKeyInput[providerId] = "";
+    cloudKeyValid[providerId] = null;
+  }
+
+  async function saveCloudKey(providerId: string) {
+    const key = cloudKeyInput[providerId]?.trim();
+    if (!key) return;
+    try {
+      await invoke("set_api_key", { provider: providerId, key });
+      cloudKeyEditing = null;
+      cloudKeyInput[providerId] = "";
+      await loadCloudProviders();
+      successMessage = t("settings.saved");
+      setTimeout(() => (successMessage = ""), 2000);
+    } catch (e) {
+      errorMessage = String(e);
+    }
+  }
+
+  async function removeCloudKey(providerId: string) {
+    try {
+      await invoke("delete_api_key", { provider: providerId });
+      cloudKeyValid[providerId] = null;
+      await loadCloudProviders();
+      successMessage = t("settings.saved");
+      setTimeout(() => (successMessage = ""), 2000);
+    } catch (e) {
+      errorMessage = String(e);
+    }
+  }
+
+  async function testCloudKey(providerId: string) {
+    cloudKeyTesting = providerId;
+    cloudKeyValid[providerId] = null;
+    try {
+      const valid = await invoke<boolean>("validate_api_key", { provider: providerId });
+      cloudKeyValid[providerId] = valid;
+    } catch (e) {
+      cloudKeyValid[providerId] = false;
+      errorMessage = String(e);
+    } finally {
+      cloudKeyTesting = null;
+    }
+  }
+
   $effect(() => {
     loadSettings();
     loadAudioDevices();
     loadProfiles();
     loadVocabCollections();
+    loadCloudProviders();
   });
 </script>
 
@@ -670,6 +744,17 @@
       </h3>
       <div class="space-y-4">
         <div class="flex items-center justify-between">
+          <span class="text-sm">{t("cloud.engine_type")}</span>
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-text-secondary">
+              {settings.engine_type === "cloud"
+                ? `${t("cloud.engine_cloud")}${settings.cloud_provider ? ` (${settings.cloud_provider})` : ""}`
+                : t("cloud.engine_local")}
+            </span>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between">
           <span class="text-sm">{t("settings.active_model")}</span>
           <span class="text-sm text-text-secondary">
             {settings.active_model_id ?? t("settings.no_model")}
@@ -893,6 +978,108 @@
           />
         </div>
       </div>
+    </section>
+
+    <!-- Cloud Providers Section -->
+    <section class="mb-8">
+      <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
+        {t("settings.section_cloud")}
+      </h3>
+      <p class="mb-3 text-xs text-text-secondary">{t("cloud.description")}</p>
+
+      <div class="space-y-3">
+        {#each cloudProviders as provider (provider.id)}
+          <div class="rounded border border-border p-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm font-medium">{provider.name}</span>
+                {#if provider.has_key}
+                  <span class="ml-2 text-xs text-accent">{t("cloud.key_configured")}</span>
+                  {#if provider.masked_last4}
+                    <span class="ml-1 text-xs text-text-secondary">({provider.masked_last4})</span>
+                  {/if}
+                {:else}
+                  <span class="ml-2 text-xs text-text-secondary">{t("cloud.key_not_set")}</span>
+                {/if}
+              </div>
+              <div class="flex gap-2">
+                {#if provider.has_key}
+                  <button
+                    class="rounded px-2 py-1 text-xs text-accent hover:bg-accent/10"
+                    disabled={cloudKeyTesting === provider.id}
+                    onclick={() => testCloudKey(provider.id)}
+                  >
+                    {cloudKeyTesting === provider.id ? t("cloud.testing") : t("cloud.test_key")}
+                  </button>
+                  <button
+                    class="rounded px-2 py-1 text-xs text-status-recording hover:bg-status-recording/10"
+                    onclick={() => removeCloudKey(provider.id)}
+                  >
+                    {t("cloud.remove_key")}
+                  </button>
+                {:else if cloudKeyEditing !== provider.id}
+                  <button
+                    class="rounded px-2 py-1 text-xs text-accent hover:bg-accent/10"
+                    onclick={() => startEditCloudKey(provider.id)}
+                  >
+                    {t("cloud.add_key")}
+                  </button>
+                {/if}
+              </div>
+            </div>
+
+            {#if cloudKeyValid[provider.id] === true}
+              <p class="mt-1 text-xs text-accent">{t("cloud.key_valid")}</p>
+            {:else if cloudKeyValid[provider.id] === false}
+              <p class="mt-1 text-xs text-status-recording">{t("cloud.key_invalid")}</p>
+            {/if}
+
+            {#if cloudKeyEditing === provider.id}
+              <div class="mt-2 flex gap-2">
+                <input
+                  type="password"
+                  placeholder={t("cloud.key_placeholder")}
+                  bind:value={cloudKeyInput[provider.id]}
+                  class="flex-1 rounded border border-border bg-bg-primary px-2 py-1 text-sm"
+                />
+                <button
+                  class="rounded bg-accent px-3 py-1 text-xs text-white hover:bg-accent/80"
+                  onclick={() => saveCloudKey(provider.id)}
+                >
+                  {t("cloud.save")}
+                </button>
+                <button
+                  class="rounded px-2 py-1 text-xs text-text-secondary hover:bg-bg-secondary"
+                  onclick={() => (cloudKeyEditing = null)}
+                >
+                  {t("cloud.cancel")}
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+
+      {#if settings}
+        <div class="mt-4 space-y-4">
+          <div class="flex items-center justify-between">
+            <label for="cloud-fallback" class="text-sm"
+              >{t("settings.cloud_fallback_local")}</label
+            >
+            <input
+              id="cloud-fallback"
+              type="checkbox"
+              checked={settings.cloud_fallback_local}
+              onchange={(e) =>
+                saveSetting(
+                  "cloud_fallback_local",
+                  (e.target as HTMLInputElement).checked,
+                )}
+              class="h-4 w-4 rounded accent-accent"
+            />
+          </div>
+        </div>
+      {/if}
     </section>
 
     <!-- Profiles Section -->

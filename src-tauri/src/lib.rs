@@ -9,6 +9,7 @@ mod logging;
 mod models;
 mod output;
 mod platform;
+mod security;
 mod settings;
 mod tray;
 
@@ -158,6 +159,13 @@ pub fn run() {
             commands::vocabulary_entry_count,
             commands::import_vocabulary_json,
             commands::toggle_private_mode,
+            commands::set_api_key,
+            commands::get_api_key_status,
+            commands::delete_api_key,
+            commands::validate_api_key,
+            commands::list_cloud_providers,
+            commands::activate_cloud_engine,
+            commands::activate_local_engine,
         ])
         .setup(|app| {
             // Register the dictation hotkey
@@ -188,39 +196,110 @@ pub fn run() {
                 tray::setup_window_close_behavior(app.handle());
             }
 
-            // Load the restored active model engine in background
+            // Load the restored active engine in background
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, AppState> = handle.state();
-                let model_id = state.active_model_id.lock().await.clone();
-                if let Some(model_id) = model_id {
-                    let file = {
-                        let manifest = state.manifest.lock().await;
-                        manifest
-                            .models
-                            .iter()
-                            .find(|m| m.id == model_id)
-                            .map(|e| e.file.clone())
+
+                // Check if we should restore a cloud engine or local
+                let engine_type = {
+                    let conn = state.db.lock().await;
+                    settings::get_typed::<String>(&conn, settings::keys::ENGINE_TYPE)
+                        .unwrap_or_else(|_| "local".to_string())
+                };
+
+                let mut cloud_restored = false;
+                if engine_type == "cloud" {
+                    // Attempt to restore cloud engine
+                    let provider_str = {
+                        let conn = state.db.lock().await;
+                        settings::get_typed::<String>(&conn, settings::keys::CLOUD_PROVIDER).ok()
                     };
-                    if let Some(file) = file {
-                        if let Ok(models_dir) = DownloadManager::models_dir(&handle) {
-                            let model_path = models_dir.join(&file);
-                            if model_path.exists() {
-                                match tokio::task::spawn_blocking(move || {
-                                    engine::whisper::WhisperEngine::new(&model_path)
-                                })
-                                .await
-                                {
-                                    Ok(Ok(engine)) => {
-                                        let name = engine.name().to_string();
-                                        state.engine_manager.load(Box::new(engine)).await;
-                                        info!(model = %name, "Restored active model engine");
+                    if let Some(ref p) = provider_str {
+                        let provider = match p.as_str() {
+                            "groq" => Some(engine::cloud::CloudProvider::Groq),
+                            "openai" => Some(engine::cloud::CloudProvider::OpenAi),
+                            "deepgram" => Some(engine::cloud::CloudProvider::Deepgram),
+                            _ => None,
+                        };
+                        if let Some(provider) = provider {
+                            if let Ok(Some(key)) = security::keyring_store::get_api_key(provider) {
+                                let result: Result<Box<dyn SttEngine>, String> = match provider {
+                                    engine::cloud::CloudProvider::Groq => {
+                                        engine::cloud::groq::GroqEngine::new(key)
+                                            .map(|e| Box::new(e) as Box<dyn SttEngine>)
+                                            .map_err(|e| e.to_string())
                                     }
-                                    Ok(Err(e)) => {
-                                        error!(%e, "Failed to load restored model");
+                                    engine::cloud::CloudProvider::OpenAi => {
+                                        let model = {
+                                            let conn = state.db.lock().await;
+                                            settings::get_typed::<String>(
+                                                &conn,
+                                                settings::keys::OPENAI_MODEL,
+                                            )
+                                            .unwrap_or_else(|_| "whisper-1".to_string())
+                                        };
+                                        engine::cloud::openai::OpenAiEngine::new(key)
+                                            .map(|e| {
+                                                Box::new(e.with_model(model)) as Box<dyn SttEngine>
+                                            })
+                                            .map_err(|e| e.to_string())
+                                    }
+                                    engine::cloud::CloudProvider::Deepgram => {
+                                        engine::cloud::deepgram::DeepgramEngine::new(key)
+                                            .map(|e| Box::new(e) as Box<dyn SttEngine>)
+                                            .map_err(|e| e.to_string())
+                                    }
+                                };
+                                match result {
+                                    Ok(eng) => {
+                                        info!(provider = p.as_str(), "Restored cloud engine");
+                                        state.engine_manager.load(eng).await;
+                                        cloud_restored = true;
                                     }
                                     Err(e) => {
-                                        error!(%e, "Model load task panicked");
+                                        error!(%e, provider = p.as_str(), "Failed to restore cloud engine, falling back to local");
+                                    }
+                                }
+                            } else {
+                                error!(provider = p.as_str(), "No API key in keychain, falling back to local engine");
+                            }
+                        }
+                    }
+                }
+
+                if !cloud_restored {
+                    // Restore local Whisper model
+                    let model_id = state.active_model_id.lock().await.clone();
+                    if let Some(model_id) = model_id {
+                        let file = {
+                            let manifest = state.manifest.lock().await;
+                            manifest
+                                .models
+                                .iter()
+                                .find(|m| m.id == model_id)
+                                .map(|e| e.file.clone())
+                        };
+                        if let Some(file) = file {
+                            if let Ok(models_dir) = DownloadManager::models_dir(&handle) {
+                                let model_path = models_dir.join(&file);
+                                if model_path.exists() {
+                                    match tokio::task::spawn_blocking(move || {
+                                        engine::whisper::WhisperEngine::new(&model_path)
+                                    })
+                                    .await
+                                    {
+                                        Ok(Ok(engine)) => {
+                                            let name = engine.name().to_string();
+                                            state.engine_manager.load(Box::new(engine)).await;
+                                            info!(model = %name, "Restored active model engine");
+                                        }
+                                        Ok(Err(e)) => {
+                                            error!(%e, "Failed to load restored model");
+                                        }
+                                        Err(e) => {
+                                            error!(%e, "Model load task panicked");
+                                        }
                                     }
                                 }
                             }

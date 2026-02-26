@@ -700,3 +700,179 @@ pub async fn toggle_private_mode(state: State<'_, AppState>) -> Result<bool, Str
     info!(private_mode = new_value, "Private mode toggled");
     Ok(new_value)
 }
+
+// ── Cloud API Key Commands ──────────────────────────────────────────
+
+#[tauri::command]
+pub async fn set_api_key(
+    provider: crate::engine::cloud::CloudProvider,
+    key: String,
+) -> Result<(), String> {
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        return Err("API key cannot be empty".to_string());
+    }
+    if key.len() > 256 {
+        return Err("API key is too long".to_string());
+    }
+    crate::security::keyring_store::set_api_key(provider, &key)
+}
+
+#[tauri::command]
+pub async fn get_api_key_status(
+    provider: crate::engine::cloud::CloudProvider,
+) -> Result<crate::security::keyring_store::ApiKeyStatus, String> {
+    crate::security::keyring_store::get_api_key_status(provider)
+}
+
+#[tauri::command]
+pub async fn delete_api_key(provider: crate::engine::cloud::CloudProvider) -> Result<(), String> {
+    crate::security::keyring_store::delete_api_key(provider)
+}
+
+#[tauri::command]
+pub async fn validate_api_key(
+    provider: crate::engine::cloud::CloudProvider,
+) -> Result<bool, String> {
+    crate::security::keyring_store::validate_api_key(provider).await
+}
+
+#[tauri::command]
+pub async fn list_cloud_providers() -> Result<Vec<serde_json::Value>, String> {
+    use crate::engine::cloud::CloudProvider;
+    use crate::security::keyring_store;
+
+    let providers = [
+        CloudProvider::Groq,
+        CloudProvider::OpenAi,
+        CloudProvider::Deepgram,
+    ];
+    let mut result = Vec::new();
+
+    for provider in providers {
+        let status = keyring_store::get_api_key_status(provider)?;
+        result.push(serde_json::json!({
+            "id": provider.as_str(),
+            "name": provider.display_name(),
+            "has_key": status.has_key,
+            "masked_last4": status.masked_last4,
+        }));
+    }
+
+    Ok(result)
+}
+
+/// Switch to a cloud engine for transcription.
+#[tauri::command]
+pub async fn activate_cloud_engine(
+    state: State<'_, AppState>,
+    provider: crate::engine::cloud::CloudProvider,
+) -> Result<(), String> {
+    use crate::engine::cloud::{deepgram::DeepgramEngine, groq::GroqEngine, openai::OpenAiEngine};
+    use crate::security::keyring_store;
+
+    // Enforce cloud opt-in
+    {
+        let conn = state.db.lock().await;
+        let opted_in = crate::settings::get_typed::<bool>(
+            &conn,
+            crate::settings::keys::CLOUD_OPT_IN_CONFIRMED,
+        )
+        .unwrap_or(false);
+        if !opted_in {
+            return Err("Cloud usage not confirmed by user".to_string());
+        }
+    }
+
+    // Check dictation is idle before switching
+    let dictation_state = state.dictation_manager.current_state().await;
+    if dictation_state != crate::dictation::DictationState::Idle {
+        return Err("Cannot switch engines during active dictation".to_string());
+    }
+
+    let api_key = keyring_store::get_api_key(provider)?
+        .ok_or_else(|| format!("No API key configured for {provider}"))?;
+
+    let engine: Box<dyn SttEngine> = match provider {
+        crate::engine::cloud::CloudProvider::Groq => {
+            Box::new(GroqEngine::new(api_key).map_err(|e| e.to_string())?)
+        }
+        crate::engine::cloud::CloudProvider::OpenAi => {
+            let conn = state.db.lock().await;
+            let model =
+                crate::settings::get_typed::<String>(&conn, crate::settings::keys::OPENAI_MODEL)
+                    .unwrap_or_else(|_| "whisper-1".to_string());
+            drop(conn);
+            Box::new(
+                OpenAiEngine::new(api_key)
+                    .map_err(|e| e.to_string())?
+                    .with_model(model),
+            )
+        }
+        crate::engine::cloud::CloudProvider::Deepgram => {
+            Box::new(DeepgramEngine::new(api_key).map_err(|e| e.to_string())?)
+        }
+    };
+
+    state.engine_manager.load(engine).await;
+
+    // Save the engine type and provider in settings
+    {
+        let conn = state.db.lock().await;
+        crate::settings::set(&conn, crate::settings::keys::ENGINE_TYPE, "\"cloud\"")?;
+        let provider_json = serde_json::to_string(&provider.as_str())
+            .map_err(|e| format!("JSON serialize: {e}"))?;
+        crate::settings::set(&conn, crate::settings::keys::CLOUD_PROVIDER, &provider_json)?;
+    }
+
+    info!(provider = provider.as_str(), "Cloud engine activated");
+    Ok(())
+}
+
+/// Switch back to a local model engine.
+#[tauri::command]
+pub async fn activate_local_engine(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Check dictation is idle before switching
+    let dictation_state = state.dictation_manager.current_state().await;
+    if dictation_state != crate::dictation::DictationState::Idle {
+        return Err("Cannot switch engines during active dictation".to_string());
+    }
+
+    let model_id = state.active_model_id.lock().await.clone();
+    let model_id = model_id.ok_or("No local model selected")?;
+
+    let file = {
+        let manifest = state.manifest.lock().await;
+        manifest
+            .models
+            .iter()
+            .find(|m| m.id == model_id)
+            .map(|e| e.file.clone())
+            .ok_or_else(|| format!("Model {model_id} not in manifest"))?
+    };
+
+    let models_dir = DownloadManager::models_dir(&app)?;
+    let model_path = models_dir.join(&file);
+    if !model_path.exists() {
+        return Err(format!("Model file not found: {}", model_path.display()));
+    }
+
+    let engine = tokio::task::spawn_blocking(move || WhisperEngine::new(&model_path))
+        .await
+        .map_err(|e| format!("Task error: {e}"))?
+        .map_err(|e| e.to_string())?;
+
+    state.engine_manager.load(Box::new(engine)).await;
+
+    // Save engine type in settings
+    {
+        let conn = state.db.lock().await;
+        crate::settings::set(&conn, crate::settings::keys::ENGINE_TYPE, "\"local\"")?;
+    }
+
+    info!(model = %model_id, "Local engine activated");
+    Ok(())
+}
