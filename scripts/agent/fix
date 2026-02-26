@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# EchoType fix script
+# Applies auto-fixable formatting and linting corrections.
+# Exit 0 = fixes applied or nothing to fix, exit 1 = unfixable issues remain.
+
+errors=0
+
+echo "--- Formatting Rust code ---" >&2
+if cargo fmt --manifest-path src-tauri/Cargo.toml 2>&2; then
+  echo "status=ok fix=cargo-fmt" >&1
+else
+  echo "status=fail fix=cargo-fmt" >&1
+  errors=$((errors + 1))
+fi
+
+echo "--- Fixing ESLint issues ---" >&2
+if npx eslint src/ --fix 2>&2; then
+  echo "status=ok fix=eslint" >&1
+else
+  echo "status=fail fix=eslint" >&1
+  errors=$((errors + 1))
+fi
+
+if [ "$errors" -gt 0 ]; then
+  echo "result=fail errors=$errors" >&1
+  exit 1
+fi
+
+echo "result=ok" >&1
+exit 0

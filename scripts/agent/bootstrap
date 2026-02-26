@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# EchoType bootstrap script
+# Checks for required toolchains, installs project dependencies.
+# Exit 0 = success, non-zero = failure.
+
+STATUS_OK="OK"
+STATUS_FAIL="FAIL"
+errors=0
+
+check_command() {
+  local cmd="$1"
+  local hint="$2"
+  if command -v "$cmd" &>/dev/null; then
+    echo "status=ok component=$cmd" >&1
+  else
+    echo "status=missing component=$cmd hint=\"$hint\"" >&1
+    errors=$((errors + 1))
+  fi
+}
+
+echo "--- EchoType Bootstrap ---" >&2
+
+# Check required toolchains
+check_command rustc "Install Rust via https://rustup.rs"
+check_command cargo "Install Rust via https://rustup.rs"
+check_command node "Install Node.js via https://nodejs.org"
+check_command npm "Install Node.js via https://nodejs.org"
+
+# Check Rust components
+if command -v rustup &>/dev/null; then
+  if ! rustup component list --installed 2>/dev/null | grep -q rustfmt; then
+    echo "Installing rustfmt..." >&2
+    rustup component add rustfmt >&2 2>&1
+  fi
+  echo "status=ok component=rustfmt" >&1
+
+  if ! rustup component list --installed 2>/dev/null | grep -q clippy; then
+    echo "Installing clippy..." >&2
+    rustup component add clippy >&2 2>&1
+  fi
+  echo "status=ok component=clippy" >&1
+else
+  echo "status=missing component=rustup hint=\"Install via https://rustup.rs\"" >&1
+  errors=$((errors + 1))
+fi
+
+# Platform-specific checks
+case "$(uname -s)" in
+  Linux)
+    for pkg in libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev; do
+      if dpkg -s "$pkg" &>/dev/null 2>&1; then
+        echo "status=ok component=$pkg" >&1
+      else
+        echo "status=missing component=$pkg hint=\"sudo apt install $pkg\"" >&1
+        errors=$((errors + 1))
+      fi
+    done
+    ;;
+  Darwin)
+    if xcode-select -p &>/dev/null; then
+      echo "status=ok component=xcode-cli-tools" >&1
+    else
+      echo "status=missing component=xcode-cli-tools hint=\"xcode-select --install\"" >&1
+      errors=$((errors + 1))
+    fi
+    ;;
+esac
+
+# Install npm dependencies
+echo "Installing npm dependencies..." >&2
+if npm ci --ignore-scripts 2>&2; then
+  echo "status=ok component=npm-deps" >&1
+else
+  echo "status=fail component=npm-deps" >&1
+  errors=$((errors + 1))
+fi
+
+# Verify Rust compilation from vendored sources
+echo "Checking Rust compilation..." >&2
+if cargo check --manifest-path src-tauri/Cargo.toml 2>&2; then
+  echo "status=ok component=cargo-check" >&1
+else
+  echo "status=fail component=cargo-check" >&1
+  errors=$((errors + 1))
+fi
+
+if [ "$errors" -gt 0 ]; then
+  echo "result=fail errors=$errors" >&1
+  exit 1
+fi
+
+echo "result=ok" >&1
+exit 0

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# EchoType dev script
+# Starts the app in development mode.
+
+exec npm run tauri dev -- "$@"

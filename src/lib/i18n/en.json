@@ -1,0 +1,8 @@
+{
+  "app.title": "EchoType",
+  "app.description": "Local-first dictation for your desktop.",
+  "app.ipc_status": "IPC Status",
+  "nav.label": "Main navigation",
+  "nav.dictation": "Dictation",
+  "nav.settings": "Settings"
+}

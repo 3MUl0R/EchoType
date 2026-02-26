@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# EchoType check script
+# Runs all linting, formatting, and test checks.
+# Exit 0 = all pass, non-zero = failures.
+
+passed=0
+failed=0
+
+run_check() {
+  local name="$1"
+  shift
+  echo "--- Running: $name ---" >&2
+  if "$@" 2>&2; then
+    echo "status=pass check=$name" >&1
+    passed=$((passed + 1))
+  else
+    echo "status=fail check=$name" >&1
+    failed=$((failed + 1))
+  fi
+}
+
+run_check "cargo-fmt" cargo fmt --check --manifest-path src-tauri/Cargo.toml
+run_check "cargo-clippy" cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+run_check "cargo-test" cargo test --manifest-path src-tauri/Cargo.toml
+run_check "eslint" npx eslint src/
+run_check "vitest" npx vitest run
+
+echo "summary passed=$passed failed=$failed" >&1
+
+if [ "$failed" -gt 0 ]; then
+  exit 1
+fi
+exit 0

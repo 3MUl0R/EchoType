@@ -1,0 +1,27 @@
+[package]
+name = "echotype"
+version = "0.1.0"
+edition = "2021"
+description = "Local-first dictation for your desktop"
+license = "MIT"
+rust-version = "1.77"
+
+[lib]
+name = "echotype_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "test"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
