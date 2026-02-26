@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-use crate::audio::{capture, pipeline};
+use crate::audio::{capture, pipeline, AudioBuffer};
 use crate::engine::TranscribeRequest;
 use crate::output;
 use crate::platform::focus;
@@ -186,9 +186,27 @@ impl DictationManager {
         let app_handle = app.clone();
         let engine_manager = app_state.engine_manager.clone();
         let focus_target = app_state.focus_target.lock().await.clone();
+        let db = app_state.db.clone();
+        let audio_for_history = buffer.clone();
 
         tokio::spawn(async move {
-            let result = run_transcription_pipeline(buffer, &engine_manager).await;
+            // Read settings before transcription (async-safe)
+            let (denoise_enabled, output_method) = {
+                let conn = db.lock().await;
+                let denoise = crate::settings::get_typed::<bool>(
+                    &conn,
+                    crate::settings::keys::DENOISE_ENABLED,
+                )
+                .unwrap_or(true);
+                let method = crate::settings::get_typed::<output::OutputMethod>(
+                    &conn,
+                    crate::settings::keys::OUTPUT_METHOD,
+                )
+                .unwrap_or_else(|_| output::auto_select_method());
+                (denoise, method)
+            };
+
+            let result = run_transcription_pipeline(buffer, &engine_manager, denoise_enabled).await;
 
             match result {
                 Ok(text) => {
@@ -216,13 +234,10 @@ impl DictationManager {
                         focus::restore_focus(target);
                     }
 
-                    // Select output method based on permissions/platform
-                    let method = output::auto_select_method();
-
                     // Insert text (blocking: uses thread::sleep + enigo)
                     let text_for_insert = text.clone();
                     let insert_result = tokio::task::spawn_blocking(move || {
-                        output::insert_text(&text_for_insert, &method)
+                        output::insert_text(&text_for_insert, &output_method)
                     })
                     .await
                     .unwrap_or_else(|e| Err(format!("Insert task panicked: {e}")));
@@ -240,6 +255,11 @@ impl DictationManager {
                     } else {
                         let total_latency = release_time.elapsed().as_millis() as u64;
                         info!(total_latency_ms = total_latency, "Text inserted");
+
+                        // Save to history
+                        save_to_history(&db, &app_handle, &text, &audio_for_history, total_latency)
+                            .await;
+
                         emit_state(
                             &app_handle,
                             &DictationEvent {
@@ -275,10 +295,11 @@ impl DictationManager {
 async fn run_transcription_pipeline(
     buffer: crate::audio::AudioBuffer,
     engine_manager: &crate::engine::manager::EngineManager,
+    denoise_enabled: bool,
 ) -> Result<String, String> {
     // Pipeline: denoise + resample (blocking work)
     let processed = tokio::task::spawn_blocking(move || {
-        let config = pipeline::PipelineConfig::default();
+        let config = pipeline::PipelineConfig { denoise_enabled };
         pipeline::process(&buffer, &config)
     })
     .await
@@ -298,6 +319,127 @@ async fn run_transcription_pipeline(
         .map_err(|e| e.to_string())?;
 
     Ok(transcription.text)
+}
+
+/// Save a completed dictation to history.
+async fn save_to_history(
+    db: &crate::db::DbHandle,
+    app: &AppHandle,
+    text: &str,
+    audio: &AudioBuffer,
+    _latency_ms: u64,
+) {
+    // Read settings (async-safe)
+    let (enabled, engine_id, max_count) = {
+        let conn = db.lock().await;
+        let enabled =
+            crate::settings::get_typed::<bool>(&conn, crate::settings::keys::HISTORY_ENABLED)
+                .unwrap_or(true);
+        let engine_id =
+            crate::settings::get_typed::<String>(&conn, crate::settings::keys::ACTIVE_MODEL_ID)
+                .ok();
+        let max_count: i64 =
+            crate::settings::get_typed(&conn, crate::settings::keys::HISTORY_RETENTION_COUNT)
+                .unwrap_or(50);
+        (enabled, engine_id, max_count)
+    };
+
+    if !enabled {
+        return;
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let duration_ms = (audio.duration_secs() * 1000.0) as i64;
+
+    // Calculate words per minute
+    let word_count = text.split_whitespace().count() as f64;
+    let minutes = duration_ms as f64 / 60_000.0;
+    let wpm = if minutes > 0.0 {
+        Some(word_count / minutes)
+    } else {
+        None
+    };
+
+    // Save audio to WAV file (no DB lock needed)
+    let audio_rel_path = save_audio_wav(app, audio, &now);
+
+    let params = crate::db::history::InsertParams {
+        text,
+        audio_path: audio_rel_path.as_deref(),
+        duration_ms: Some(duration_ms),
+        engine_id: engine_id.as_deref(),
+        language: None,
+        words_per_minute: wpm,
+        created_at: &now,
+    };
+
+    // Insert and enforce retention under a single lock
+    let conn = db.lock().await;
+    match crate::db::history::insert(&conn, &params) {
+        Ok(id) => {
+            debug!(history_id = id, "Saved dictation to history");
+
+            if let Ok(paths) = crate::db::history::enforce_retention_count(&conn, max_count) {
+                for rel_path in paths {
+                    if let Ok(data_dir) = app.path().app_data_dir() {
+                        let full_path = data_dir.join(&rel_path);
+                        let _ = std::fs::remove_file(&full_path);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!(%e, "Failed to save dictation to history");
+        }
+    }
+}
+
+/// Save audio buffer to a WAV file, returning the relative path.
+fn save_audio_wav(app: &AppHandle, audio: &AudioBuffer, timestamp: &str) -> Option<String> {
+    let data_dir = app.path().app_data_dir().ok()?;
+    let audio_dir = data_dir.join("audio");
+    std::fs::create_dir_all(&audio_dir).ok()?;
+
+    // Create filename from timestamp (sanitize for filesystem)
+    let safe_ts: String = timestamp
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let filename = format!("{safe_ts}.wav");
+    let full_path = audio_dir.join(&filename);
+    let rel_path = format!("audio/{filename}");
+
+    // Write WAV using hound
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: audio.sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+
+    match hound::WavWriter::create(&full_path, spec) {
+        Ok(mut writer) => {
+            for &sample in &audio.samples {
+                if writer.write_sample(sample).is_err() {
+                    break;
+                }
+            }
+            if writer.finalize().is_err() {
+                warn!("Failed to finalize WAV file");
+            }
+            Some(rel_path)
+        }
+        Err(e) => {
+            warn!(%e, "Failed to create WAV file for history");
+            None
+        }
+    }
 }
 
 fn emit_state(app: &AppHandle, event: &DictationEvent) {

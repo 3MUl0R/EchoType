@@ -1,5 +1,6 @@
 mod audio;
 mod commands;
+mod db;
 mod dictation;
 mod engine;
 mod hotkey;
@@ -7,6 +8,7 @@ mod logging;
 mod models;
 mod output;
 mod platform;
+mod settings;
 
 use std::sync::Arc;
 
@@ -16,6 +18,7 @@ use tracing::{error, info};
 
 use dictation::DictationManager;
 use engine::manager::EngineManager;
+use engine::SttEngine;
 use models::download::DownloadManager;
 use models::manifest::Manifest;
 
@@ -29,6 +32,7 @@ pub struct AppState {
     pub manifest: Arc<Mutex<Manifest>>,
     pub download_manager: DownloadManager,
     pub active_model_id: Arc<Mutex<Option<String>>>,
+    pub db: db::DbHandle,
 }
 
 #[tauri::command]
@@ -57,6 +61,25 @@ pub fn run() {
     let manifest = models::manifest::load_bundled().expect("Bundled manifest must be valid");
     info!(model_count = manifest.models.len(), "Model manifest loaded");
 
+    // Open database
+    let db_dir = dirs::data_dir()
+        .expect("Cannot determine app data directory")
+        .join("com.echotype.app");
+    let db_path = db_dir.join("echotype.db");
+    let db_handle = db::open(&db_path).expect("Cannot open database");
+
+    // Restore active model from settings
+    let active_model_id = {
+        let conn = db_handle.blocking_lock();
+        match db::settings::get(&conn, "active_model_id") {
+            Ok(Some(v)) => serde_json::from_str::<String>(&v).ok(),
+            _ => None,
+        }
+    };
+    if let Some(ref id) = active_model_id {
+        info!(model_id = %id, "Restored active model from settings");
+    }
+
     let state = AppState {
         engine_manager: EngineManager::new(),
         capture_session: Arc::new(Mutex::new(None)),
@@ -65,7 +88,8 @@ pub fn run() {
         focus_target: Arc::new(Mutex::new(None)),
         manifest: Arc::new(Mutex::new(manifest)),
         download_manager: DownloadManager::new(),
-        active_model_id: Arc::new(Mutex::new(None)),
+        active_model_id: Arc::new(Mutex::new(active_model_id)),
+        db: db_handle,
     };
 
     tauri::Builder::default()
@@ -86,6 +110,17 @@ pub fn run() {
             commands::delete_model,
             commands::set_active_model,
             commands::get_active_model,
+            commands::get_setting,
+            commands::set_setting,
+            commands::get_all_settings,
+            commands::reset_setting,
+            commands::export_settings,
+            commands::import_settings,
+            commands::get_history,
+            commands::get_history_entry,
+            commands::delete_history_entry,
+            commands::clear_history,
+            commands::copy_history_text,
         ])
         .setup(|app| {
             // Register the dictation hotkey
@@ -101,6 +136,47 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 if let Ok(models_dir) = DownloadManager::models_dir(&handle) {
                     DownloadManager::cleanup_stale_partials(&models_dir).await;
+                }
+            });
+
+            // Load the restored active model engine in background
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state: tauri::State<'_, AppState> = handle.state();
+                let model_id = state.active_model_id.lock().await.clone();
+                if let Some(model_id) = model_id {
+                    let file = {
+                        let manifest = state.manifest.lock().await;
+                        manifest
+                            .models
+                            .iter()
+                            .find(|m| m.id == model_id)
+                            .map(|e| e.file.clone())
+                    };
+                    if let Some(file) = file {
+                        if let Ok(models_dir) = DownloadManager::models_dir(&handle) {
+                            let model_path = models_dir.join(&file);
+                            if model_path.exists() {
+                                match tokio::task::spawn_blocking(move || {
+                                    engine::whisper::WhisperEngine::new(&model_path)
+                                })
+                                .await
+                                {
+                                    Ok(Ok(engine)) => {
+                                        let name = engine.name().to_string();
+                                        state.engine_manager.load(Box::new(engine)).await;
+                                        info!(model = %name, "Restored active model engine");
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!(%e, "Failed to load restored model");
+                                    }
+                                    Err(e) => {
+                                        error!(%e, "Model load task panicked");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             });
 

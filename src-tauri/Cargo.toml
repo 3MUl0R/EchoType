@@ -48,5 +48,9 @@ reqwest = { version = "0.13", features = ["stream", "rustls"], default-features 
 sha2 = "0.10"
 futures-util = "0.3"
 
+# Database
+rusqlite = { version = "0.34", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tracing::{error, info};
 
 use crate::audio::{capture, pipeline, AudioDeviceInfo};
@@ -61,9 +61,16 @@ pub async fn transcribe_audio(
         "Processing audio for transcription"
     );
 
+    // Read denoise setting
+    let denoise_enabled = {
+        let conn = state.db.lock().await;
+        crate::settings::get_typed::<bool>(&conn, crate::settings::keys::DENOISE_ENABLED)
+            .unwrap_or(true)
+    };
+
     // Run audio pipeline (denoise + resample) off the async runtime
     let processed = tokio::task::spawn_blocking(move || {
-        let config = pipeline::PipelineConfig::default();
+        let config = pipeline::PipelineConfig { denoise_enabled };
         pipeline::process(&raw, &config)
     })
     .await
@@ -262,8 +269,17 @@ pub async fn set_active_model(
     let name = engine.name().to_string();
     state.engine_manager.load(Box::new(engine)).await;
 
-    // Update active model ID
-    *state.active_model_id.lock().await = Some(model_id);
+    // Update active model ID (in memory and database)
+    *state.active_model_id.lock().await = Some(model_id.clone());
+    {
+        let conn = state.db.lock().await;
+        crate::settings::set(
+            &conn,
+            crate::settings::keys::ACTIVE_MODEL_ID,
+            &serde_json::to_string(&model_id).unwrap(),
+        )
+        .ok();
+    }
 
     info!(model = %name, "Active model switched");
     Ok(name)
@@ -272,4 +288,143 @@ pub async fn set_active_model(
 #[tauri::command]
 pub async fn get_active_model(state: State<'_, AppState>) -> Result<Option<String>, String> {
     Ok(state.active_model_id.lock().await.clone())
+}
+
+// --- Settings Commands ---
+
+#[tauri::command]
+pub async fn get_setting(state: State<'_, AppState>, key: String) -> Result<String, String> {
+    let conn = state.db.lock().await;
+    crate::settings::get(&conn, &key)
+}
+
+#[tauri::command]
+pub async fn set_setting(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::settings::set(&conn, &key, &value)
+}
+
+#[tauri::command]
+pub async fn get_all_settings(
+    state: State<'_, AppState>,
+) -> Result<crate::settings::AllSettings, String> {
+    let conn = state.db.lock().await;
+    crate::settings::get_all(&conn)
+}
+
+#[tauri::command]
+pub async fn reset_setting(state: State<'_, AppState>, key: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    crate::settings::reset(&conn, &key)
+}
+
+#[tauri::command]
+pub async fn export_settings(
+    state: State<'_, AppState>,
+) -> Result<crate::settings::ExportedSettings, String> {
+    let conn = state.db.lock().await;
+    crate::settings::export(&conn)
+}
+
+#[tauri::command]
+pub async fn import_settings(
+    state: State<'_, AppState>,
+    data: crate::settings::ExportedSettings,
+) -> Result<u32, String> {
+    let conn = state.db.lock().await;
+    crate::settings::import(&conn, &data)
+}
+
+// --- History Commands ---
+
+#[tauri::command]
+pub async fn get_history(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<crate::db::history::HistoryEntry>, String> {
+    let conn = state.db.lock().await;
+    crate::db::history::list(&conn, limit.unwrap_or(20), offset.unwrap_or(0))
+}
+
+#[tauri::command]
+pub async fn get_history_entry(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<Option<crate::db::history::HistoryEntry>, String> {
+    let conn = state.db.lock().await;
+    crate::db::history::get_by_id(&conn, id)
+}
+
+#[tauri::command]
+pub async fn delete_history_entry(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    id: i64,
+) -> Result<(), String> {
+    let audio_path = {
+        let conn = state.db.lock().await;
+        crate::db::history::delete(&conn, id)?
+    };
+
+    // Clean up audio file if it existed
+    if let Some(rel_path) = audio_path {
+        let data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Cannot resolve data dir: {e}"))?;
+        let full_path = data_dir.join(&rel_path);
+        if full_path.exists() {
+            let _ = tokio::fs::remove_file(&full_path).await;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_history(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    let audio_paths = {
+        let conn = state.db.lock().await;
+        crate::db::history::clear(&conn)?
+    };
+
+    // Clean up audio files
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot resolve data dir: {e}"))?;
+    for rel_path in audio_paths {
+        let full_path = data_dir.join(&rel_path);
+        if full_path.exists() {
+            let _ = tokio::fs::remove_file(&full_path).await;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn copy_history_text(state: State<'_, AppState>, id: i64) -> Result<String, String> {
+    let conn = state.db.lock().await;
+    let entry = crate::db::history::get_by_id(&conn, id)?.ok_or("History entry not found")?;
+
+    // Copy to clipboard
+    let text = entry.text.clone();
+    tokio::task::spawn_blocking(move || {
+        use arboard::Clipboard;
+        let mut clipboard = Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
+        clipboard
+            .set_text(&text)
+            .map_err(|e| format!("Failed to copy: {e}"))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))??;
+
+    Ok(entry.text)
 }

@@ -25,6 +25,8 @@ describe("App", () => {
     render(App);
     expect(screen.getByText("Dictation")).toBeTruthy();
     expect(screen.getByText("Models")).toBeTruthy();
+    expect(screen.getByText("History")).toBeTruthy();
+    expect(screen.getByText("Settings")).toBeTruthy();
   });
 
   it("has accessible navigation", () => {

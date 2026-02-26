@@ -5,6 +5,8 @@
   import RecordButton from "$lib/components/RecordButton.svelte";
   import TranscriptionDisplay from "$lib/components/TranscriptionDisplay.svelte";
   import ModelManager from "$lib/components/ModelManager.svelte";
+  import History from "$lib/components/History.svelte";
+  import Settings from "$lib/components/Settings.svelte";
 
   type DictationState =
     | "idle"
@@ -12,7 +14,7 @@
     | "transcribing"
     | "inserting";
 
-  type Page = "dictation" | "models";
+  type Page = "dictation" | "models" | "history" | "settings";
 
   interface DictationEvent {
     state: DictationState;
@@ -117,6 +119,30 @@
           {t("nav.models")}
         </button>
       </li>
+      <li>
+        <button
+          onclick={() => (currentPage = "history")}
+          class="rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent
+            {currentPage === 'history'
+            ? 'text-accent hover:text-accent-hover'
+            : 'text-text-secondary hover:text-text-primary'}"
+          aria-current={currentPage === "history" ? "page" : undefined}
+        >
+          {t("nav.history")}
+        </button>
+      </li>
+      <li>
+        <button
+          onclick={() => (currentPage = "settings")}
+          class="rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent
+            {currentPage === 'settings'
+            ? 'text-accent hover:text-accent-hover'
+            : 'text-text-secondary hover:text-text-primary'}"
+          aria-current={currentPage === "settings" ? "page" : undefined}
+        >
+          {t("nav.settings")}
+        </button>
+      </li>
     </ul>
   </nav>
 
@@ -142,6 +168,14 @@
   {:else if currentPage === "models"}
     <main>
       <ModelManager />
+    </main>
+  {:else if currentPage === "history"}
+    <main>
+      <History />
+    </main>
+  {:else if currentPage === "settings"}
+    <main>
+      <Settings />
     </main>
   {/if}
 </div>
