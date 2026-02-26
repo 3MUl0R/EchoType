@@ -245,8 +245,7 @@ without rewrites.
 
 ## 9. Distribution & Project
 
-- **Open source** - Fully open source, hosted on GitHub. MIT or similar permissive
-  license (firm decision needed before first public commit).
+- **Open source** - Fully open source, hosted on GitHub. MIT licensed.
 - **Completely free** - No paid tiers, no premium features, no backers, no sponsors.
   The whole thing, forever.
 - **Zero infrastructure** - No servers to run, no services to maintain. The project is
