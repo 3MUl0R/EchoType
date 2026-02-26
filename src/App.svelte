@@ -46,6 +46,20 @@
     });
   });
 
+  // Listen for navigation events from the system tray
+  $effect(() => {
+    const unlisten = listen<string>("navigate", (event) => {
+      const page = event.payload as Page;
+      if (["dictation", "models", "history", "settings"].includes(page)) {
+        currentPage = page;
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  });
+
   // Listen for dictation state events from the global hotkey flow
   $effect(() => {
     const unlisten = listen<DictationEvent>(

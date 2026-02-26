@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { t } from "$lib/i18n/index.js";
+  import PermissionGuide from "./PermissionGuide.svelte";
 
   interface AllSettings {
     hotkey: string;
@@ -12,9 +13,20 @@
     history_retention_count: number;
     history_retention_days: number | null;
     history_enabled: boolean;
+    overlay_enabled: boolean;
+    audio_feedback_enabled: boolean;
+    audio_feedback_volume: number;
+    selected_mic_device: string | null;
+    mic_auto_fallback: boolean;
+  }
+
+  interface AudioDevice {
+    name: string;
+    is_default: boolean;
   }
 
   let settings: AllSettings | null = $state(null);
+  let audioDevices: AudioDevice[] = $state([]);
   let errorMessage = $state("");
   let successMessage = $state("");
 
@@ -75,8 +87,17 @@
     input.click();
   }
 
+  async function loadAudioDevices() {
+    try {
+      audioDevices = await invoke<AudioDevice[]>("list_audio_devices");
+    } catch {
+      audioDevices = [];
+    }
+  }
+
   $effect(() => {
     loadSettings();
+    loadAudioDevices();
   });
 </script>
 
@@ -100,6 +121,8 @@
       {successMessage}
     </p>
   {/if}
+
+  <PermissionGuide />
 
   {#if settings}
     <!-- Dictation Section -->
@@ -180,6 +203,119 @@
             onchange={(e) =>
               saveSetting(
                 "denoise_enabled",
+                (e.target as HTMLInputElement).checked,
+              )}
+            class="h-4 w-4 rounded accent-accent"
+          />
+        </div>
+      </div>
+    </section>
+
+    <!-- Microphone Section -->
+    <section class="mb-8">
+      <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
+        {t("settings.section_microphone")}
+      </h3>
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <label for="mic-device" class="text-sm"
+            >{t("settings.mic_device")}</label
+          >
+          <select
+            id="mic-device"
+            value={settings.selected_mic_device ?? ""}
+            onchange={(e) => {
+              const val = (e.target as HTMLSelectElement).value;
+              if (val === "") {
+                saveSetting("selected_mic_device", null);
+              } else {
+                saveSetting("selected_mic_device", val);
+              }
+            }}
+            class="max-w-48 truncate rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+          >
+            <option value="">{t("settings.mic_default")}</option>
+            {#each audioDevices as device (device.name)}
+              <option value={device.name}>{device.name}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <label for="mic-fallback" class="text-sm"
+            >{t("settings.mic_auto_fallback")}</label
+          >
+          <input
+            id="mic-fallback"
+            type="checkbox"
+            checked={settings.mic_auto_fallback}
+            onchange={(e) =>
+              saveSetting(
+                "mic_auto_fallback",
+                (e.target as HTMLInputElement).checked,
+              )}
+            class="h-4 w-4 rounded accent-accent"
+          />
+        </div>
+      </div>
+    </section>
+
+    <!-- Feedback Section -->
+    <section class="mb-8">
+      <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
+        {t("settings.section_feedback")}
+      </h3>
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <label for="audio-feedback" class="text-sm"
+            >{t("settings.audio_feedback")}</label
+          >
+          <input
+            id="audio-feedback"
+            type="checkbox"
+            checked={settings.audio_feedback_enabled}
+            onchange={(e) =>
+              saveSetting(
+                "audio_feedback_enabled",
+                (e.target as HTMLInputElement).checked,
+              )}
+            class="h-4 w-4 rounded accent-accent"
+          />
+        </div>
+
+        {#if settings.audio_feedback_enabled}
+          <div class="flex items-center justify-between">
+            <label for="audio-volume" class="text-sm"
+              >{t("settings.audio_volume")}</label
+            >
+            <input
+              id="audio-volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={settings.audio_feedback_volume}
+              onchange={(e) =>
+                saveSetting(
+                  "audio_feedback_volume",
+                  parseFloat((e.target as HTMLInputElement).value),
+                )}
+              class="w-32 accent-accent"
+            />
+          </div>
+        {/if}
+
+        <div class="flex items-center justify-between">
+          <label for="overlay" class="text-sm"
+            >{t("settings.overlay_enabled")}</label
+          >
+          <input
+            id="overlay"
+            type="checkbox"
+            checked={settings.overlay_enabled}
+            onchange={(e) =>
+              saveSetting(
+                "overlay_enabled",
                 (e.target as HTMLInputElement).checked,
               )}
             class="h-4 w-4 rounded accent-accent"

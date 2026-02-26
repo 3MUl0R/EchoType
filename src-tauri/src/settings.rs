@@ -15,6 +15,11 @@ pub mod keys {
     pub const HISTORY_RETENTION_COUNT: &str = "history_retention_count";
     pub const HISTORY_RETENTION_DAYS: &str = "history_retention_days";
     pub const HISTORY_ENABLED: &str = "history_enabled";
+    pub const OVERLAY_ENABLED: &str = "overlay_enabled";
+    pub const AUDIO_FEEDBACK_ENABLED: &str = "audio_feedback_enabled";
+    pub const AUDIO_FEEDBACK_VOLUME: &str = "audio_feedback_volume";
+    pub const SELECTED_MIC_DEVICE: &str = "selected_mic_device";
+    pub const MIC_AUTO_FALLBACK: &str = "mic_auto_fallback";
 }
 
 /// All user-facing settings with their current values.
@@ -29,6 +34,11 @@ pub struct AllSettings {
     pub history_retention_count: i64,
     pub history_retention_days: Option<i64>,
     pub history_enabled: bool,
+    pub overlay_enabled: bool,
+    pub audio_feedback_enabled: bool,
+    pub audio_feedback_volume: f64,
+    pub selected_mic_device: Option<String>,
+    pub mic_auto_fallback: bool,
 }
 
 /// Default values for all settings.
@@ -48,6 +58,10 @@ fn default_for(key: &str) -> Option<String> {
         keys::HISTORY_RETENTION_COUNT => "50",
         keys::HISTORY_RETENTION_DAYS => "null",
         keys::HISTORY_ENABLED => "true",
+        keys::OVERLAY_ENABLED => "true",
+        keys::AUDIO_FEEDBACK_ENABLED => "true",
+        keys::AUDIO_FEEDBACK_VOLUME => "0.5",
+        keys::MIC_AUTO_FALLBACK => "true",
         _ => return None,
     };
     Some(val.to_string())
@@ -96,6 +110,11 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         history_retention_count: get_typed(conn, keys::HISTORY_RETENTION_COUNT)?,
         history_retention_days: get_typed(conn, keys::HISTORY_RETENTION_DAYS).ok().flatten(),
         history_enabled: get_typed(conn, keys::HISTORY_ENABLED)?,
+        overlay_enabled: get_typed(conn, keys::OVERLAY_ENABLED)?,
+        audio_feedback_enabled: get_typed(conn, keys::AUDIO_FEEDBACK_ENABLED)?,
+        audio_feedback_volume: get_typed(conn, keys::AUDIO_FEEDBACK_VOLUME)?,
+        selected_mic_device: get_typed(conn, keys::SELECTED_MIC_DEVICE).ok(),
+        mic_auto_fallback: get_typed(conn, keys::MIC_AUTO_FALLBACK)?,
     })
 }
 
@@ -137,7 +156,10 @@ pub fn import(conn: &Connection, exported: &ExportedSettings) -> Result<u32, Str
 
     for (key, value) in &exported.settings {
         // Only import known keys
-        if default_for(key).is_some() || key == keys::ACTIVE_MODEL_ID {
+        if default_for(key).is_some()
+            || key == keys::ACTIVE_MODEL_ID
+            || key == keys::SELECTED_MIC_DEVICE
+        {
             let json = serde_json::to_string(value)
                 .map_err(|e| format!("Failed to serialize setting '{key}': {e}"))?;
             db::settings::set(conn, key, &json)?;
@@ -165,6 +187,10 @@ mod tests {
             keys::HISTORY_RETENTION_COUNT,
             keys::HISTORY_RETENTION_DAYS,
             keys::HISTORY_ENABLED,
+            keys::OVERLAY_ENABLED,
+            keys::AUDIO_FEEDBACK_ENABLED,
+            keys::AUDIO_FEEDBACK_VOLUME,
+            keys::MIC_AUTO_FALLBACK,
         ] {
             let val = default_for(key).unwrap();
             assert!(
@@ -216,6 +242,11 @@ mod tests {
         assert_eq!(all.language, "en");
         assert!(all.denoise_enabled);
         assert_eq!(all.history_retention_count, 50);
+        assert!(all.overlay_enabled);
+        assert!(all.audio_feedback_enabled);
+        assert!((all.audio_feedback_volume - 0.5).abs() < f64::EPSILON);
+        assert!(all.selected_mic_device.is_none());
+        assert!(all.mic_auto_fallback);
     }
 
     #[test]

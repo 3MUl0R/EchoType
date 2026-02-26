@@ -13,11 +13,13 @@
     "withGlobalTauri": false,
     "windows": [
       {
+        "label": "main",
         "title": "EchoType",
         "width": 900,
         "height": 680,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": false
       }
     ]
   },

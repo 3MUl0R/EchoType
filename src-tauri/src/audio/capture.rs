@@ -124,10 +124,49 @@ where
     }
 }
 
+/// Resolve a named input device, falling back to default if needed.
+fn resolve_device(
+    host: &cpal::Host,
+    name: Option<&str>,
+    auto_fallback: bool,
+) -> Result<cpal::Device, CaptureError> {
+    if let Some(name) = name {
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                if get_device_name(&device) == name {
+                    info!(device = %name, "Using selected microphone");
+                    return Ok(device);
+                }
+            }
+        }
+
+        if auto_fallback {
+            warn!(
+                requested = %name,
+                "Selected microphone not found, falling back to default"
+            );
+        } else {
+            return Err(CaptureError::NoDevice);
+        }
+    }
+
+    host.default_input_device().ok_or(CaptureError::NoDevice)
+}
+
 /// Start capturing audio from the default input device.
+#[allow(dead_code)]
 pub fn start_capture() -> Result<CaptureSession, CaptureError> {
+    start_capture_with_device(None, true)
+}
+
+/// Start capturing audio from a specific device (or default if None).
+/// If `auto_fallback` is true and the named device isn't found, falls back to default.
+pub fn start_capture_with_device(
+    device_name: Option<&str>,
+    auto_fallback: bool,
+) -> Result<CaptureSession, CaptureError> {
     let host = cpal::default_host();
-    let device = host.default_input_device().ok_or(CaptureError::NoDevice)?;
+    let device = resolve_device(&host, device_name, auto_fallback)?;
 
     let device_name = get_device_name(&device);
 
@@ -241,5 +280,27 @@ mod tests {
     fn list_devices_does_not_panic() {
         // Should not panic even if no audio device is available
         let _devices = list_devices();
+    }
+
+    #[test]
+    fn resolve_nonexistent_device_with_fallback() {
+        let host = cpal::default_host();
+        // A nonexistent device name with auto_fallback=true should not error
+        // (falls back to default, which may or may not exist)
+        let _ = resolve_device(&host, Some("nonexistent_device_xyz"), true);
+    }
+
+    #[test]
+    fn resolve_nonexistent_device_without_fallback() {
+        let host = cpal::default_host();
+        let result = resolve_device(&host, Some("nonexistent_device_xyz"), false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_none_uses_default() {
+        let host = cpal::default_host();
+        // None device name should use default (may or may not exist on CI)
+        let _ = resolve_device(&host, None, true);
     }
 }

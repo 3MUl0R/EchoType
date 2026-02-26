@@ -9,6 +9,7 @@ mod models;
 mod output;
 mod platform;
 mod settings;
+mod tray;
 
 use std::sync::Arc;
 
@@ -110,6 +111,8 @@ pub fn run() {
             commands::delete_model,
             commands::set_active_model,
             commands::get_active_model,
+            commands::check_permissions,
+            commands::open_permission_settings,
             commands::get_setting,
             commands::set_setting,
             commands::get_all_settings,
@@ -138,6 +141,18 @@ pub fn run() {
                     DownloadManager::cleanup_stale_partials(&models_dir).await;
                 }
             });
+
+            // Set up system tray
+            if let Err(e) = tray::setup(app.handle()) {
+                error!(%e, "Failed to set up system tray");
+                // Tray failed — show the main window so the app isn't invisible
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                }
+            } else {
+                // Only hide-on-close when tray is available
+                tray::setup_window_close_behavior(app.handle());
+            }
 
             // Load the restored active model engine in background
             let handle = app.handle().clone();

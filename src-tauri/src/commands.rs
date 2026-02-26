@@ -21,7 +21,21 @@ pub async fn start_capture(state: State<'_, AppState>) -> Result<(), String> {
     if guard.is_some() {
         return Err("Capture already in progress".to_string());
     }
-    let session = capture::start_capture().map_err(|e| e.to_string())?;
+
+    // Read mic settings
+    let (device, fallback) = {
+        let conn = state.db.lock().await;
+        let device =
+            crate::settings::get_typed::<String>(&conn, crate::settings::keys::SELECTED_MIC_DEVICE)
+                .ok();
+        let fallback =
+            crate::settings::get_typed::<bool>(&conn, crate::settings::keys::MIC_AUTO_FALLBACK)
+                .unwrap_or(true);
+        (device, fallback)
+    };
+
+    let session = capture::start_capture_with_device(device.as_deref(), fallback)
+        .map_err(|e| e.to_string())?;
     *guard = Some(session);
     Ok(())
 }
@@ -337,6 +351,18 @@ pub async fn import_settings(
 ) -> Result<u32, String> {
     let conn = state.db.lock().await;
     crate::settings::import(&conn, &data)
+}
+
+// --- Permission Commands ---
+
+#[tauri::command]
+pub fn check_permissions() -> crate::platform::permissions::PermissionStatus {
+    crate::platform::permissions::check_permissions()
+}
+
+#[tauri::command]
+pub fn open_permission_settings(permission: String) -> Result<(), String> {
+    crate::platform::permissions::open_permission_settings(&permission)
 }
 
 // --- History Commands ---

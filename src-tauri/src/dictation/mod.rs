@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-use crate::audio::{capture, pipeline, AudioBuffer};
+use crate::audio::{capture, feedback, pipeline, AudioBuffer};
 use crate::engine::TranscribeRequest;
 use crate::output;
 use crate::platform::focus;
@@ -70,7 +70,37 @@ impl DictationManager {
 
         // Start audio capture (blocking I/O, but short-lived)
         let app_state: tauri::State<'_, AppState> = app.state();
-        match capture::start_capture() {
+
+        // Read mic and feedback settings together
+        let (selected_device, auto_fallback, fb_enabled, fb_volume) = {
+            let conn = app_state.db.lock().await;
+            let device = crate::settings::get_typed::<String>(
+                &conn,
+                crate::settings::keys::SELECTED_MIC_DEVICE,
+            )
+            .ok();
+            let fallback =
+                crate::settings::get_typed::<bool>(&conn, crate::settings::keys::MIC_AUTO_FALLBACK)
+                    .unwrap_or(true);
+            let enabled = crate::settings::get_typed::<bool>(
+                &conn,
+                crate::settings::keys::AUDIO_FEEDBACK_ENABLED,
+            )
+            .unwrap_or(true);
+            let volume = crate::settings::get_typed::<f64>(
+                &conn,
+                crate::settings::keys::AUDIO_FEEDBACK_VOLUME,
+            )
+            .unwrap_or(0.5);
+            (device, fallback, enabled, volume)
+        };
+
+        // Play start chime BEFORE opening mic to avoid bleeding into capture
+        if fb_enabled {
+            feedback::play_chime(feedback::Chime::Start, fb_volume as f32);
+        }
+
+        match capture::start_capture_with_device(selected_device.as_deref(), auto_fallback) {
             Ok(session) => {
                 let mut capture_guard = app_state.capture_session.lock().await;
                 *capture_guard = Some(session);
@@ -88,6 +118,7 @@ impl DictationManager {
                         latency_ms: None,
                     },
                 );
+
                 info!("Dictation recording started");
             }
             Err(e) => {
@@ -177,6 +208,9 @@ impl DictationManager {
                 latency_ms: None,
             },
         );
+
+        // Play stop chime (non-blocking)
+        play_feedback_chime(&app_state, feedback::Chime::Stop).await;
 
         // Store last audio
         *app_state.last_audio.lock().await = Some(buffer.clone());
@@ -439,6 +473,26 @@ fn save_audio_wav(app: &AppHandle, audio: &AudioBuffer, timestamp: &str) -> Opti
             warn!(%e, "Failed to create WAV file for history");
             None
         }
+    }
+}
+
+/// Read audio feedback settings and play a chime if enabled.
+async fn play_feedback_chime(app_state: &AppState, chime: feedback::Chime) {
+    let (enabled, volume) = {
+        let conn = app_state.db.lock().await;
+        let enabled = crate::settings::get_typed::<bool>(
+            &conn,
+            crate::settings::keys::AUDIO_FEEDBACK_ENABLED,
+        )
+        .unwrap_or(true);
+        let volume =
+            crate::settings::get_typed::<f64>(&conn, crate::settings::keys::AUDIO_FEEDBACK_VOLUME)
+                .unwrap_or(0.5);
+        (enabled, volume)
+    };
+
+    if enabled {
+        feedback::play_chime(chime, volume as f32);
     }
 }
 
