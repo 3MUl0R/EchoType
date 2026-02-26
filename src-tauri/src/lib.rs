@@ -12,6 +12,8 @@ mod platform;
 mod security;
 mod settings;
 mod tray;
+#[allow(dead_code)]
+mod updater;
 
 use std::sync::Arc;
 
@@ -171,6 +173,8 @@ pub fn run() {
             commands::get_engine_breakdown,
             commands::get_lifetime_metrics,
             commands::set_typing_baseline,
+            commands::check_for_update,
+            commands::get_build_info,
         ])
         .setup(|app| {
             // Register the dictation hotkey

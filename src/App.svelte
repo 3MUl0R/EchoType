@@ -8,6 +8,9 @@
   import History from "$lib/components/History.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import Dashboard from "$lib/components/Dashboard.svelte";
+  import SetupWizard from "$lib/components/SetupWizard.svelte";
+  import SetupBanner from "$lib/components/SetupBanner.svelte";
+  import UpdateNotification from "$lib/components/UpdateNotification.svelte";
   import { initTheme } from "$lib/theme/index.js";
 
   type DictationState =
@@ -31,6 +34,9 @@
   let errorMessage = $state("");
   let dictationState: DictationState = $state("idle");
   let currentPage: Page = $state("dictation");
+  let showWizard = $state(false);
+  let wizardChecked = $state(false);
+  let bannerDismissed = $state(false);
 
   function handleTranscription(text: string, durationMs: number) {
     transcriptionText = text;
@@ -42,12 +48,26 @@
     errorMessage = error;
   }
 
-  // Fetch initial dictation state and theme on mount
+  // Fetch initial dictation state, theme, and wizard status on mount
   $effect(() => {
     invoke<DictationState>("get_dictation_state").then((state) => {
       dictationState = state;
     });
     initTheme();
+
+    // Check if wizard needs to run
+    invoke<string>("get_setting", { key: "wizard_completed" }).then((raw) => {
+      try {
+        const completed = JSON.parse(raw);
+        showWizard = !completed;
+      } catch {
+        showWizard = true;
+      }
+      wizardChecked = true;
+    }).catch(() => {
+      showWizard = true;
+      wizardChecked = true;
+    });
   });
 
   // Listen for navigation events from the system tray
@@ -91,7 +111,17 @@
   });
 </script>
 
+{#if showWizard && wizardChecked}
+  <SetupWizard onComplete={() => (showWizard = false)} />
+{:else if wizardChecked}
 <div class="min-h-screen bg-bg-primary text-text-primary">
+  {#if !bannerDismissed}
+    <SetupBanner
+      onNavigate={(page) => { currentPage = page as Page; bannerDismissed = true; }}
+      onDismiss={() => (bannerDismissed = true)}
+    />
+  {/if}
+  <UpdateNotification />
   <header class="border-b border-border px-6 py-4">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold">{t("app.title")}</h1>
@@ -209,7 +239,8 @@
     </main>
   {:else if currentPage === "settings"}
     <main>
-      <Settings />
+      <Settings onRunWizard={() => { invoke("set_setting", { key: "wizard_completed", value: "false" }); showWizard = true; }} />
     </main>
   {/if}
 </div>
+{/if}

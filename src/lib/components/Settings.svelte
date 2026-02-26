@@ -4,6 +4,12 @@
   import { setTheme, type Theme } from "$lib/theme/index.js";
   import PermissionGuide from "./PermissionGuide.svelte";
 
+  interface Props {
+    onRunWizard?: () => void;
+  }
+
+  let { onRunWizard }: Props = $props();
+
   interface AllSettings {
     hotkey: string;
     output_method: string;
@@ -40,6 +46,8 @@
     openai_model: string;
     typing_baseline_wpm: number | null;
     theme: string;
+    wizard_completed: boolean;
+    update_behavior: string;
   }
 
   interface AudioDevice {
@@ -1489,6 +1497,23 @@
           </select>
         </div>
 
+        <div class="flex items-center justify-between">
+          <label for="update-behavior" class="text-sm"
+            >{t("settings.update_behavior")}</label
+          >
+          <select
+            id="update-behavior"
+            value={settings.update_behavior}
+            onchange={(e) =>
+              saveSetting("update_behavior", (e.target as HTMLSelectElement).value)}
+            class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+          >
+            <option value="auto_update">{t("settings.update_auto")}</option>
+            <option value="download_and_prompt">{t("settings.update_prompt")}</option>
+            <option value="notify_only">{t("settings.update_notify")}</option>
+          </select>
+        </div>
+
         <div class="flex gap-2">
           <button
             onclick={handleExport}
@@ -1503,6 +1528,15 @@
             {t("settings.import")}
           </button>
         </div>
+
+        {#if onRunWizard}
+          <button
+            onclick={onRunWizard}
+            class="rounded bg-bg-primary px-3 py-1.5 text-sm text-text-primary border border-border hover:bg-bg-surface focus:outline-none focus:ring-2 focus:ring-accent"
+          >
+            {t("settings.run_wizard_again")}
+          </button>
+        {/if}
       </div>
     </section>
   {/if}

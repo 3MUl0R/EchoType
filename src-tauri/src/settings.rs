@@ -41,6 +41,8 @@ pub mod keys {
     pub const OPENAI_MODEL: &str = "openai_model";
     pub const TYPING_BASELINE_WPM: &str = "typing_baseline_wpm";
     pub const THEME: &str = "theme";
+    pub const WIZARD_COMPLETED: &str = "wizard_completed";
+    pub const UPDATE_BEHAVIOR: &str = "update_behavior";
 }
 
 /// All user-facing settings with their current values.
@@ -81,6 +83,8 @@ pub struct AllSettings {
     pub openai_model: String,
     pub typing_baseline_wpm: Option<f64>,
     pub theme: String,
+    pub wizard_completed: bool,
+    pub update_behavior: String,
 }
 
 /// Default values for all settings.
@@ -125,6 +129,8 @@ fn default_for(key: &str) -> Option<String> {
         keys::OPENAI_MODEL => "\"whisper-1\"",
         keys::TYPING_BASELINE_WPM => "null",
         keys::THEME => "\"dark\"",
+        keys::WIZARD_COMPLETED => "false",
+        keys::UPDATE_BEHAVIOR => "\"download_and_prompt\"",
         _ => return None,
     };
     Some(val.to_string())
@@ -216,6 +222,8 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         openai_model: get_typed(conn, keys::OPENAI_MODEL)?,
         typing_baseline_wpm: get_typed(conn, keys::TYPING_BASELINE_WPM).ok().flatten(),
         theme: get_typed(conn, keys::THEME)?,
+        wizard_completed: get_typed(conn, keys::WIZARD_COMPLETED)?,
+        update_behavior: get_typed(conn, keys::UPDATE_BEHAVIOR)?,
     })
 }
 
@@ -313,6 +321,8 @@ mod tests {
             keys::OPENAI_MODEL,
             keys::TYPING_BASELINE_WPM,
             keys::THEME,
+            keys::WIZARD_COMPLETED,
+            keys::UPDATE_BEHAVIOR,
         ] {
             let val = default_for(key).unwrap();
             assert!(
@@ -390,6 +400,8 @@ mod tests {
         assert_eq!(all.openai_model, "whisper-1");
         assert!(all.typing_baseline_wpm.is_none());
         assert_eq!(all.theme, "dark");
+        assert!(!all.wizard_completed);
+        assert_eq!(all.update_behavior, "download_and_prompt");
     }
 
     #[test]

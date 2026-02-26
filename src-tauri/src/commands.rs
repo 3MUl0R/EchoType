@@ -924,3 +924,21 @@ pub async fn set_typing_baseline(state: State<'_, AppState>, wpm: f64) -> Result
     let conn = state.db.lock().await;
     crate::db::metrics::set_typing_baseline(&conn, wpm)
 }
+
+// ── Updater Commands ──────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn check_for_update() -> Result<Option<crate::updater::UpdateInfo>, String> {
+    Ok(crate::updater::check_for_update().await)
+}
+
+#[tauri::command]
+pub async fn get_build_info() -> Result<serde_json::Value, String> {
+    let meta = crate::updater::build_meta();
+    Ok(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "platform": meta.platform,
+        "arch": meta.arch,
+        "flavor": meta.flavor,
+    }))
+}

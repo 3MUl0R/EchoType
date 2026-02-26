@@ -14,4 +14,15 @@ describe("i18n", () => {
     const result = t("unknown.key");
     expect(result).toBe("unknown.key");
   });
+
+  it("interpolates parameters", () => {
+    // "update.available" = "Update available: v{version}"
+    expect(t("update.available", { version: "1.2.3" })).toBe(
+      "Update available: v1.2.3",
+    );
+  });
+
+  it("leaves unknown placeholders intact", () => {
+    expect(t("update.available", {})).toBe("Update available: v{version}");
+  });
 });
