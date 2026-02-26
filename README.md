@@ -2,64 +2,69 @@
 
 **Your voice, your machine, your rules.**
 
-EchoType is a desktop dictation tool that transcribes speech to text and pastes it wherever your cursor is. It runs locally by default, stays out of your way, and never phones home unless you tell it to.
+EchoType is a desktop dictation app that transcribes speech to text and inserts it where your cursor is.
+It is designed to be local-first, fast, and predictable, with optional cloud engines when you want them.
 
-Built with Rust and Tauri. Free and open source. No accounts, no servers, no nonsense.
+Built with Rust and Tauri for a lightweight runtime footprint.
 
----
+## Why EchoType
 
-## What It Does
+EchoType is for people who want:
 
-Hold a key, speak, release. Your words appear where your cursor is. That's it.
+- Local speech-to-text by default.
+- Optional cloud transcription with bring-your-own API keys.
+- Strong privacy controls and explicit cloud opt-in.
+- Reliable low-latency dictation for daily use.
+- A simple runtime experience with deep configuration when needed.
 
-- **Offline by default** -- download a model and go. No internet required.
-- **Cross-platform** -- Windows, macOS, and Linux.
-- **Multiple activation modes** -- hold-to-dictate, toggle on/off, or voice activity detection.
-- **Direct input or clipboard** -- simulates keystrokes or uses the clipboard. Your choice.
-- **Bring your own cloud** -- optionally use Groq, OpenAI, Deepgram, or others with your own API keys.
-- **GPU accelerated** -- CUDA, Metal, and Vulkan support. CPU-only works too.
-- **Multi-language** -- dozens of languages supported out of the box.
+## Project Status
 
-## Why
+EchoType is in early development.
 
-Every existing dictation tool is either cloud-only, closed source, expensive, abandoned, or all four. EchoType is none of those things.
+- Product spec: [docs/product-spec.md](docs/product-spec.md)
+- Core architecture and implementation are in progress.
+- Installable builds are not published yet.
 
-Your voice data stays on your machine. There are no accounts to create, no subscriptions to manage, and no telemetry to opt out of. The app is the binary on your disk and nothing else.
+## Planned Capabilities
 
-## Features
+### Dictation Workflow
 
-**Core dictation** -- hold-to-dictate, toggle mode, or always-listening VAD. Text goes where your cursor is via simulated keystrokes or clipboard. Focus lock ensures text lands in the right app even if you switch windows during processing.
+- Global hotkey activation with hold-to-dictate, toggle, and VAD modes.
+- Direct input, clipboard + paste, or clipboard-only output.
+- Selection-aware replacement and focus lock for reliable insertion.
+- Optional edit-before-insert buffer and auto-submit actions.
 
-**Speech engines** -- built-in downloadable local models with one-click install. Optional cloud transcription with your own API keys. Models sourced from a public catalog with checksum verification.
+### Engines and Models
 
-**Per-app profiles** -- different modes, output methods, and vocabularies for different apps. Automatically switches based on the focused application.
+- Downloadable local models with checksum verification.
+- Fully offline transcription after model download.
+- Optional cloud providers (for example: OpenAI, Groq, Deepgram) using your own API keys.
+- Multi-language support and optional GPU acceleration (CUDA, Metal, Vulkan).
 
-**Privacy** -- offline-first, no accounts, no telemetry. Private mode for sensitive dictation that shouldn't be stored. All data lives on your machine.
+### Privacy and Data Ownership
 
-**Metrics** -- words per minute, total words dictated, daily stats, streaks, and milestones. All local. Telemetry *for* you, not from you.
+- No forced accounts.
+- Local storage for settings, history, and metrics.
+- Private mode for sessions that should not be retained.
+- Cloud usage is explicit opt-in and controlled by you.
 
-**Advanced** -- custom vocabulary, noise suppression, silence cutoff tuning, streaming transcription with live replacement, auto-submit for chat apps, and a CLI mode with daemon and pipe support.
+### Power User Controls
 
-## Status
+- Per-application profiles.
+- Custom vocabulary and tuning controls.
+- Streaming transcription with final replacement.
+- CLI daemon/pipe modes for automation workflows.
 
-EchoType is in early development. The [product spec](docs/product-spec.md) is complete and the technical implementation plan is next.
+## Distribution Plan
 
-## Installation
+Initial releases are planned through GitHub Releases:
 
-Coming soon. EchoType will be available as:
-
-- **Windows** -- `.msi` installer and `winget install echotype`
-- **macOS** -- `.dmg` disk image and `brew install --cask echotype`
-- **Linux** -- AppImage, Flatpak, `.deb`, and `.rpm`
-
-## Building from Source
-
-Coming soon.
+- **Windows**: `.msi` installer and WinGet package.
+- **macOS**: `.dmg` disk image and Homebrew cask.
+- **Linux**: AppImage, Flatpak, `.deb`, and `.rpm`.
 
 ## Contributing
 
-Coming soon. We want contributors and will have a proper guide before the first public release.
+Contributions are welcome.
 
-## License
-
-[MIT](LICENSE)
+Until a full contribution guide is published, open an issue first for substantial changes so we can align on scope and direction.
