@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "whisper-tiny-en",
+      "name": "Whisper Tiny (English)",
+      "engine": "whisper",
+      "file": "ggml-tiny.en.bin",
+      "size_bytes": 77704715,
+      "sha256": "921e4cf8686fdd993dcd081a5da5b6c543f43c93f7c4ece1ab485b95da3b5e94",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+      "languages": ["en"],
+      "speed_tier": "fast",
+      "accuracy_tier": "basic",
+      "description": "Smallest English-only model. Fast on any hardware."
+    },
+    {
+      "id": "whisper-tiny",
+      "name": "Whisper Tiny (Multilingual)",
+      "engine": "whisper",
+      "file": "ggml-tiny.bin",
+      "size_bytes": 77704715,
+      "sha256": "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+      "languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su"],
+      "speed_tier": "fast",
+      "accuracy_tier": "basic",
+      "description": "Smallest multilingual model. Fast, lower accuracy."
+    },
+    {
+      "id": "whisper-base-en",
+      "name": "Whisper Base (English)",
+      "engine": "whisper",
+      "file": "ggml-base.en.bin",
+      "size_bytes": 147964211,
+      "sha256": "a03779c86df3323075f5e796cb2ce55550d51cff4d70b770fb2a65b5f3af2554",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+      "languages": ["en"],
+      "speed_tier": "fast",
+      "accuracy_tier": "good",
+      "description": "Small English-only model. Good balance of speed and accuracy."
+    },
+    {
+      "id": "whisper-base",
+      "name": "Whisper Base (Multilingual)",
+      "engine": "whisper",
+      "file": "ggml-base.bin",
+      "size_bytes": 147964211,
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b7f0291dbddd5c0b83",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+      "languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su"],
+      "speed_tier": "fast",
+      "accuracy_tier": "good",
+      "description": "Small multilingual model. Good balance of speed and accuracy."
+    },
+    {
+      "id": "whisper-small-en",
+      "name": "Whisper Small (English)",
+      "engine": "whisper",
+      "file": "ggml-small.en.bin",
+      "size_bytes": 487601967,
+      "sha256": "c6138e16c82ec5bb1beeec41dd2e95af3b3e60d3b58a56fe479b46d74b50d984",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+      "languages": ["en"],
+      "speed_tier": "moderate",
+      "accuracy_tier": "good",
+      "description": "Medium English-only model. Good accuracy, moderate speed."
+    },
+    {
+      "id": "whisper-small",
+      "name": "Whisper Small (Multilingual)",
+      "engine": "whisper",
+      "file": "ggml-small.bin",
+      "size_bytes": 487601967,
+      "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1c3c80ec77",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+      "languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su"],
+      "speed_tier": "moderate",
+      "accuracy_tier": "good",
+      "description": "Medium multilingual model. Good accuracy, moderate speed."
+    },
+    {
+      "id": "whisper-medium-en",
+      "name": "Whisper Medium (English)",
+      "engine": "whisper",
+      "file": "ggml-medium.en.bin",
+      "size_bytes": 1533774781,
+      "sha256": "cb9d637e06f30e98e7eba689e54b07da1f2c0164c3d26afe44c91493ffc80b4f",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+      "languages": ["en"],
+      "speed_tier": "slow",
+      "accuracy_tier": "best",
+      "description": "Large English-only model. Best English accuracy, requires more resources."
+    },
+    {
+      "id": "whisper-medium",
+      "name": "Whisper Medium (Multilingual)",
+      "engine": "whisper",
+      "file": "ggml-medium.bin",
+      "size_bytes": 1533774781,
+      "sha256": "fd9727b63454ee0fa031e6b5da0a5b33f953f5ad424038532d55009aeec7268f",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+      "languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su"],
+      "speed_tier": "slow",
+      "accuracy_tier": "best",
+      "description": "Large multilingual model. Best accuracy, requires more resources."
+    },
+    {
+      "id": "whisper-large-v3-turbo",
+      "name": "Whisper Large V3 Turbo",
+      "engine": "whisper",
+      "file": "ggml-large-v3-turbo.bin",
+      "size_bytes": 1625292863,
+      "sha256": "4354eb830cf3c86c12855c4fa968e63a72e5a79f74e1e9bdb8bb620e18e3bcc2",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+      "languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su"],
+      "speed_tier": "moderate",
+      "accuracy_tier": "best",
+      "description": "Distilled large model. Near-best accuracy with better speed than full large."
+    }
+  ]
+}

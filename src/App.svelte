@@ -4,12 +4,15 @@
   import { t } from "$lib/i18n/index.js";
   import RecordButton from "$lib/components/RecordButton.svelte";
   import TranscriptionDisplay from "$lib/components/TranscriptionDisplay.svelte";
+  import ModelManager from "$lib/components/ModelManager.svelte";
 
   type DictationState =
     | "idle"
     | "recording"
     | "transcribing"
     | "inserting";
+
+  type Page = "dictation" | "models";
 
   interface DictationEvent {
     state: DictationState;
@@ -22,6 +25,7 @@
   let transcriptionDuration = $state<number | undefined>(undefined);
   let errorMessage = $state("");
   let dictationState: DictationState = $state("idle");
+  let currentPage: Page = $state("dictation");
 
   function handleTranscription(text: string, durationMs: number) {
     transcriptionText = text;
@@ -91,35 +95,53 @@
     <ul class="flex gap-4">
       <li>
         <button
-          class="rounded px-2 py-1 text-accent hover:text-accent-hover focus:outline-none focus:ring-2 focus:ring-accent"
+          onclick={() => (currentPage = "dictation")}
+          class="rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent
+            {currentPage === 'dictation'
+            ? 'text-accent hover:text-accent-hover'
+            : 'text-text-secondary hover:text-text-primary'}"
+          aria-current={currentPage === "dictation" ? "page" : undefined}
         >
           {t("nav.dictation")}
         </button>
       </li>
       <li>
         <button
-          class="rounded px-2 py-1 text-text-secondary hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+          onclick={() => (currentPage = "models")}
+          class="rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent
+            {currentPage === 'models'
+            ? 'text-accent hover:text-accent-hover'
+            : 'text-text-secondary hover:text-text-primary'}"
+          aria-current={currentPage === "models" ? "page" : undefined}
         >
-          {t("nav.settings")}
+          {t("nav.models")}
         </button>
       </li>
     </ul>
   </nav>
 
-  <main class="mx-auto max-w-2xl px-6 py-8">
-    <p class="mb-8 text-center text-text-secondary">{t("app.description")}</p>
+  {#if currentPage === "dictation"}
+    <main>
+      <div class="mx-auto max-w-2xl px-6 py-8">
+        <p class="mb-8 text-center text-text-secondary">{t("app.description")}</p>
 
-    <div class="mb-8 flex justify-center">
-      <RecordButton
-        onTranscription={handleTranscription}
-        onError={handleError}
-      />
-    </div>
+        <div class="mb-8 flex justify-center">
+          <RecordButton
+            onTranscription={handleTranscription}
+            onError={handleError}
+          />
+        </div>
 
-    <TranscriptionDisplay
-      text={transcriptionText}
-      durationMs={transcriptionDuration}
-      error={errorMessage}
-    />
-  </main>
+        <TranscriptionDisplay
+          text={transcriptionText}
+          durationMs={transcriptionDuration}
+          error={errorMessage}
+        />
+      </div>
+    </main>
+  {:else if currentPage === "models"}
+    <main>
+      <ModelManager />
+    </main>
+  {/if}
 </div>

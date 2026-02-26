@@ -4,6 +4,7 @@ mod dictation;
 mod engine;
 mod hotkey;
 mod logging;
+mod models;
 mod output;
 mod platform;
 
@@ -15,6 +16,8 @@ use tracing::{error, info};
 
 use dictation::DictationManager;
 use engine::manager::EngineManager;
+use models::download::DownloadManager;
+use models::manifest::Manifest;
 
 /// Shared application state accessible from Tauri commands.
 pub struct AppState {
@@ -23,6 +26,9 @@ pub struct AppState {
     pub last_audio: Arc<Mutex<Option<audio::AudioBuffer>>>,
     pub dictation_manager: DictationManager,
     pub focus_target: Arc<Mutex<Option<platform::focus::FocusTarget>>>,
+    pub manifest: Arc<Mutex<Manifest>>,
+    pub download_manager: DownloadManager,
+    pub active_model_id: Arc<Mutex<Option<String>>>,
 }
 
 #[tauri::command]
@@ -47,12 +53,19 @@ pub fn run() {
         "Platform permissions checked"
     );
 
+    // Load model manifest
+    let manifest = models::manifest::load_bundled().expect("Bundled manifest must be valid");
+    info!(model_count = manifest.models.len(), "Model manifest loaded");
+
     let state = AppState {
         engine_manager: EngineManager::new(),
         capture_session: Arc::new(Mutex::new(None)),
         last_audio: Arc::new(Mutex::new(None)),
         dictation_manager: DictationManager::new(),
         focus_target: Arc::new(Mutex::new(None)),
+        manifest: Arc::new(Mutex::new(manifest)),
+        download_manager: DownloadManager::new(),
+        active_model_id: Arc::new(Mutex::new(None)),
     };
 
     tauri::Builder::default()
@@ -66,6 +79,13 @@ pub fn run() {
             commands::transcribe_audio,
             commands::load_model,
             commands::get_dictation_state,
+            commands::list_available_models,
+            commands::list_installed_models,
+            commands::download_model,
+            commands::cancel_download,
+            commands::delete_model,
+            commands::set_active_model,
+            commands::get_active_model,
         ])
         .setup(|app| {
             // Register the dictation hotkey
@@ -75,6 +95,14 @@ pub fn run() {
 
             // Set up dictation event listeners
             setup_dictation_listeners(app.handle());
+
+            // Clean up stale partial downloads
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(models_dir) = DownloadManager::models_dir(&handle) {
+                    DownloadManager::cleanup_stale_partials(&models_dir).await;
+                }
+            });
 
             Ok(())
         })
