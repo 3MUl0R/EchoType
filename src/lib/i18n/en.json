@@ -295,5 +295,36 @@
   "settings.update_behavior": "Update Behavior",
   "settings.update_auto": "Auto-update",
   "settings.update_prompt": "Download & Prompt",
-  "settings.update_notify": "Notify Only"
+  "settings.update_notify": "Notify Only",
+
+  "settings.diagnostics": "Diagnostics",
+  "settings.self_checks": "Self-Checks",
+
+  "diagnostic.copy_button": "Copy Diagnostic Info",
+  "diagnostic.collecting": "Collecting...",
+  "diagnostic.copied": "Copied to clipboard",
+  "diagnostic.copy_failed": "Clipboard unavailable — copy manually from below",
+  "diagnostic.description": "Collect system info for bug reports. Sensitive data is redacted.",
+
+  "selfcheck.mic_title": "Microphone Test",
+  "selfcheck.mic_desc": "Records 3 seconds of audio to verify your microphone is working.",
+  "selfcheck.mic_test": "Test Microphone",
+  "selfcheck.transcribe_title": "Transcription Test",
+  "selfcheck.transcribe_desc": "Records a short clip and runs it through the active engine.",
+  "selfcheck.transcribe_test": "Test Transcription",
+  "selfcheck.testing": "Testing...",
+  "selfcheck.pass": "Pass",
+  "selfcheck.fail": "Fail",
+  "selfcheck.device": "Device",
+  "selfcheck.no_device": "No device detected",
+
+  "model.tiny_label": "Tiny",
+  "model.tiny_desc": "Fastest, lower accuracy",
+  "model.base_label": "Base (Recommended)",
+  "model.base_desc": "Good balance of speed and accuracy",
+  "model.small_label": "Small",
+  "model.small_desc": "Higher accuracy, slower",
+
+  "settings.lang_english": "English",
+  "settings.lang_auto": "Auto-detect"
 }

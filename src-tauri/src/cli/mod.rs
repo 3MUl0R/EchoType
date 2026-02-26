@@ -78,6 +78,27 @@ pub fn set_model(model_id: &str) {
     eprintln!("Active model set to: {model_id}");
 }
 
+/// Print diagnostic info to stdout for bug reports.
+pub fn print_diagnostic() {
+    let mut info = crate::diagnostic::collect_basic();
+
+    // Try to read active model from DB
+    let db_path = db_path();
+    if let Ok(db) = crate::db::open(&db_path) {
+        let conn = db.blocking_lock();
+        if let Ok(Some(val)) =
+            crate::db::settings::get(&conn, crate::settings::keys::ACTIVE_MODEL_ID)
+        {
+            info.active_model = serde_json::from_str::<String>(&val).ok();
+        }
+        info.engine_type =
+            crate::settings::get_typed::<String>(&conn, crate::settings::keys::ENGINE_TYPE)
+                .unwrap_or_else(|_| "local".to_string());
+    }
+
+    print!("{}", crate::diagnostic::format_markdown(&info));
+}
+
 fn models_dir_or_exit() -> std::path::PathBuf {
     let data_dir = dirs::data_dir().unwrap_or_else(|| {
         eprintln!("Cannot determine data directory");

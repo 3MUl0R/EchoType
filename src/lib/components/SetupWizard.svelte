@@ -46,20 +46,20 @@
   const modelOptions: ModelOption[] = [
     {
       id: "ggml-tiny.en",
-      label: "Tiny",
-      description: "Fastest, lower accuracy",
+      label: t("model.tiny_label"),
+      description: t("model.tiny_desc"),
       size: "~75 MB",
     },
     {
       id: "ggml-base.en",
-      label: "Base (Recommended)",
-      description: "Good balance of speed and accuracy",
+      label: t("model.base_label"),
+      description: t("model.base_desc"),
       size: "~142 MB",
     },
     {
       id: "ggml-small.en",
-      label: "Small",
-      description: "Higher accuracy, slower",
+      label: t("model.small_label"),
+      description: t("model.small_desc"),
       size: "~466 MB",
     },
   ];

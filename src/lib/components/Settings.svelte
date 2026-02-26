@@ -3,6 +3,8 @@
   import { t } from "$lib/i18n/index.js";
   import { setTheme, type Theme } from "$lib/theme/index.js";
   import PermissionGuide from "./PermissionGuide.svelte";
+  import DiagnosticInfo from "./DiagnosticInfo.svelte";
+  import SelfCheck from "./SelfCheck.svelte";
 
   interface Props {
     onRunWizard?: () => void;
@@ -568,8 +570,8 @@
               saveSetting("language", (e.target as HTMLSelectElement).value)}
             class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
           >
-            <option value="en">English</option>
-            <option value="auto">Auto-detect</option>
+            <option value="en">{t("settings.lang_english")}</option>
+            <option value="auto">{t("settings.lang_auto")}</option>
           </select>
         </div>
 
@@ -1538,6 +1540,23 @@
           </button>
         {/if}
       </div>
+    </section>
+
+    <!-- Diagnostics Section -->
+    <section class="mb-8">
+      <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
+        {t("settings.diagnostics")}
+      </h3>
+      <p class="mb-3 text-xs text-text-muted">{t("diagnostic.description")}</p>
+      <DiagnosticInfo />
+    </section>
+
+    <!-- Self-Checks Section -->
+    <section class="mb-8">
+      <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
+        {t("settings.self_checks")}
+      </h3>
+      <SelfCheck />
     </section>
   {/if}
 </div>

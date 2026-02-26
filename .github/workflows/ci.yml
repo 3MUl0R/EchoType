@@ -69,7 +69,7 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Run ESLint
-        run: npx eslint src/
+        run: npx eslint 'src/**/*.{ts,svelte}'
 
       - name: Run Vitest
         run: npx vitest run

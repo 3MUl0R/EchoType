@@ -942,3 +942,23 @@ pub async fn get_build_info() -> Result<serde_json::Value, String> {
         "flavor": meta.flavor,
     }))
 }
+
+// ── Diagnostic Commands ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_diagnostic_info(state: State<'_, AppState>) -> Result<String, String> {
+    let mut info = crate::diagnostic::collect_basic();
+
+    // Fill in app-state-dependent fields
+    let model_id = state.active_model_id.lock().await.clone();
+    info.active_model = model_id;
+
+    let engine_type = {
+        let conn = state.db.lock().await;
+        crate::settings::get_typed::<String>(&conn, crate::settings::keys::ENGINE_TYPE)
+            .unwrap_or_else(|_| "local".to_string())
+    };
+    info.engine_type = engine_type;
+
+    Ok(crate::diagnostic::format_markdown(&info))
+}

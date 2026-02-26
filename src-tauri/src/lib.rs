@@ -2,6 +2,7 @@ mod audio;
 pub mod cli;
 mod commands;
 mod db;
+pub mod diagnostic;
 mod dictation;
 mod engine;
 mod hotkey;
@@ -175,6 +176,7 @@ pub fn run() {
             commands::set_typing_baseline,
             commands::check_for_update,
             commands::get_build_info,
+            commands::get_diagnostic_info,
         ])
         .setup(|app| {
             // Register the dictation hotkey

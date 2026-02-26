@@ -27,6 +27,10 @@ struct Cli {
     #[arg(long, value_name = "MODEL_ID")]
     set_model: Option<String>,
 
+    /// Print diagnostic info for bug reports
+    #[arg(long)]
+    diagnostic: bool,
+
     /// Set log verbosity (trace, debug, info, warn, error)
     #[arg(long, default_value = "info")]
     log_level: String,
@@ -46,6 +50,11 @@ fn main() {
 
     if let Some(ref model_id) = cli.set_model {
         echotype_lib::cli::set_model(model_id);
+        return;
+    }
+
+    if cli.diagnostic {
+        echotype_lib::cli::print_diagnostic();
         return;
     }
 
