@@ -166,6 +166,11 @@ pub fn run() {
             commands::list_cloud_providers,
             commands::activate_cloud_engine,
             commands::activate_local_engine,
+            commands::get_metrics_today,
+            commands::get_metrics_range,
+            commands::get_engine_breakdown,
+            commands::get_lifetime_metrics,
+            commands::set_typing_baseline,
         ])
         .setup(|app| {
             // Register the dictation hotkey

@@ -46,6 +46,7 @@
     onclick={() => (expanded = !expanded)}
     class="w-full text-left focus:outline-none focus:ring-2 focus:ring-accent rounded"
     aria-expanded={expanded}
+    aria-label={expanded ? entry.text.slice(0, 60) : entry.text.slice(0, 60)}
   >
     <div class="flex items-start justify-between gap-2">
       <p class="text-sm text-text-primary line-clamp-2">{entry.text}</p>

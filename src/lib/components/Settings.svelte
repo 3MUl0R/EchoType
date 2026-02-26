@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { t } from "$lib/i18n/index.js";
+  import { setTheme, type Theme } from "$lib/theme/index.js";
   import PermissionGuide from "./PermissionGuide.svelte";
 
   interface AllSettings {
@@ -37,6 +38,8 @@
     cloud_opt_in_confirmed: boolean;
     cloud_fallback_local: boolean;
     openai_model: string;
+    typing_baseline_wpm: number | null;
+    theme: string;
   }
 
   interface AudioDevice {
@@ -480,6 +483,7 @@
     <p
       class="mb-4 rounded bg-status-success/20 p-3 text-sm text-status-success"
       role="status"
+      aria-live="polite"
     >
       {successMessage}
     </p>
@@ -916,6 +920,33 @@
       </div>
     </section>
 
+    <!-- Appearance Section -->
+    <section class="mb-8">
+      <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
+        {t("settings.theme")}
+      </h3>
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <label for="theme-select" class="text-sm">{t("settings.theme")}</label>
+          <select
+            id="theme-select"
+            value={settings.theme}
+            onchange={(e) => {
+              const val = (e.target as HTMLSelectElement).value;
+              saveSetting("theme", val);
+              setTheme(val as Theme);
+            }}
+            class="rounded border border-border bg-bg-surface px-3 py-1 text-sm"
+          >
+            <option value="dark">{t("settings.theme_dark")}</option>
+            <option value="light">{t("settings.theme_light")}</option>
+            <option value="high-contrast">{t("settings.theme_high_contrast")}</option>
+            <option value="auto">{t("settings.theme_auto")}</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
     <!-- History Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1039,6 +1070,7 @@
                 <input
                   type="password"
                   placeholder={t("cloud.key_placeholder")}
+                  aria-label={`${provider.name} API key`}
                   bind:value={cloudKeyInput[provider.id]}
                   class="flex-1 rounded border border-border bg-bg-primary px-2 py-1 text-sm"
                 />
@@ -1101,16 +1133,19 @@
                 type="text"
                 bind:value={profileForm.name}
                 placeholder={t("profiles.name")}
+                aria-label={t("profiles.name")}
                 class="w-full rounded border border-border bg-bg-primary px-3 py-1 text-sm"
               />
               <input
                 type="text"
                 bind:value={profileForm.app_identifier}
                 placeholder={t("profiles.app_id")}
+                aria-label={t("profiles.app_id")}
                 class="w-full rounded border border-border bg-bg-primary px-3 py-1 text-sm"
               />
               <select
                 bind:value={profileForm.app_identifier_type}
+                aria-label={t("profiles.app_id_type")}
                 class="w-full rounded border border-border bg-bg-primary px-3 py-1 text-sm"
               >
                 <option value="bundle_id">{t("profiles.type_bundle_id")}</option>
@@ -1168,16 +1203,19 @@
             type="text"
             bind:value={profileForm.name}
             placeholder={t("profiles.name")}
+            aria-label={t("profiles.name")}
             class="w-full rounded border border-border bg-bg-primary px-3 py-1 text-sm"
           />
           <input
             type="text"
             bind:value={profileForm.app_identifier}
             placeholder={t("profiles.app_id")}
+            aria-label={t("profiles.app_id")}
             class="w-full rounded border border-border bg-bg-primary px-3 py-1 text-sm"
           />
           <select
             bind:value={profileForm.app_identifier_type}
+            aria-label={t("profiles.app_id_type")}
             class="w-full rounded border border-border bg-bg-primary px-3 py-1 text-sm"
           >
             <option value="bundle_id">{t("profiles.type_bundle_id")}</option>
@@ -1251,12 +1289,14 @@
                     type="text"
                     bind:value={entryForm.correction}
                     placeholder={t("vocabulary.correction")}
+                    aria-label={t("vocabulary.correction")}
                     class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
                   />
                   <input
                     type="text"
                     bind:value={entryForm.aliases}
                     placeholder={t("vocabulary.aliases")}
+                    aria-label={t("vocabulary.aliases")}
                     class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
                   />
                   <div class="flex gap-2">
@@ -1305,12 +1345,14 @@
                 type="text"
                 bind:value={entryForm.correction}
                 placeholder={t("vocabulary.correction")}
+                aria-label={t("vocabulary.correction")}
                 class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
               />
               <input
                 type="text"
                 bind:value={entryForm.aliases}
                 placeholder={t("vocabulary.aliases")}
+                aria-label={t("vocabulary.aliases")}
                 class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
               />
               <div class="flex gap-2">

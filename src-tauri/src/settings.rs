@@ -39,6 +39,8 @@ pub mod keys {
     pub const CLOUD_OPT_IN_CONFIRMED: &str = "cloud_opt_in_confirmed";
     pub const CLOUD_FALLBACK_LOCAL: &str = "cloud_fallback_local";
     pub const OPENAI_MODEL: &str = "openai_model";
+    pub const TYPING_BASELINE_WPM: &str = "typing_baseline_wpm";
+    pub const THEME: &str = "theme";
 }
 
 /// All user-facing settings with their current values.
@@ -77,6 +79,8 @@ pub struct AllSettings {
     pub cloud_opt_in_confirmed: bool,
     pub cloud_fallback_local: bool,
     pub openai_model: String,
+    pub typing_baseline_wpm: Option<f64>,
+    pub theme: String,
 }
 
 /// Default values for all settings.
@@ -119,6 +123,8 @@ fn default_for(key: &str) -> Option<String> {
         keys::CLOUD_OPT_IN_CONFIRMED => "false",
         keys::CLOUD_FALLBACK_LOCAL => "true",
         keys::OPENAI_MODEL => "\"whisper-1\"",
+        keys::TYPING_BASELINE_WPM => "null",
+        keys::THEME => "\"dark\"",
         _ => return None,
     };
     Some(val.to_string())
@@ -208,6 +214,8 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         cloud_opt_in_confirmed: get_typed(conn, keys::CLOUD_OPT_IN_CONFIRMED)?,
         cloud_fallback_local: get_typed(conn, keys::CLOUD_FALLBACK_LOCAL)?,
         openai_model: get_typed(conn, keys::OPENAI_MODEL)?,
+        typing_baseline_wpm: get_typed(conn, keys::TYPING_BASELINE_WPM).ok().flatten(),
+        theme: get_typed(conn, keys::THEME)?,
     })
 }
 
@@ -303,6 +311,8 @@ mod tests {
             keys::CLOUD_OPT_IN_CONFIRMED,
             keys::CLOUD_FALLBACK_LOCAL,
             keys::OPENAI_MODEL,
+            keys::TYPING_BASELINE_WPM,
+            keys::THEME,
         ] {
             let val = default_for(key).unwrap();
             assert!(
@@ -378,6 +388,8 @@ mod tests {
         assert!(!all.cloud_opt_in_confirmed);
         assert!(all.cloud_fallback_local);
         assert_eq!(all.openai_model, "whisper-1");
+        assert!(all.typing_baseline_wpm.is_none());
+        assert_eq!(all.theme, "dark");
     }
 
     #[test]

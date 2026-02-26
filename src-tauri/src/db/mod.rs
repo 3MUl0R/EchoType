@@ -1,4 +1,5 @@
 pub mod history;
+pub mod metrics;
 pub mod migrations;
 pub mod models;
 pub mod profiles;

@@ -2,7 +2,7 @@ use rusqlite::Connection;
 use tracing::info;
 
 /// Current schema version.
-const CURRENT_VERSION: u32 = 2;
+const CURRENT_VERSION: u32 = 3;
 
 /// Run all pending migrations.
 pub fn run(conn: &Connection) -> Result<(), String> {
@@ -25,6 +25,9 @@ pub fn run(conn: &Connection) -> Result<(), String> {
     }
     if version < 2 {
         migrate_v2(conn)?;
+    }
+    if version < 3 {
+        migrate_v3(conn)?;
     }
 
     conn.pragma_update(None, "user_version", CURRENT_VERSION)
@@ -113,6 +116,48 @@ fn migrate_v2(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+/// V3: Usage metrics — daily aggregates, per-engine breakdown, lifetime stats.
+fn migrate_v3(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS metrics_daily (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            date_local            TEXT NOT NULL UNIQUE,
+            dictation_count       INTEGER NOT NULL DEFAULT 0,
+            total_words           INTEGER NOT NULL DEFAULT 0,
+            total_duration_ms     INTEGER NOT NULL DEFAULT 0,
+            total_wpm_weighted_sum REAL NOT NULL DEFAULT 0.0
+        );
+
+        CREATE TABLE IF NOT EXISTS metrics_daily_engine (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            date_local        TEXT NOT NULL,
+            engine_id         TEXT NOT NULL,
+            dictation_count   INTEGER NOT NULL DEFAULT 0,
+            total_words       INTEGER NOT NULL DEFAULT 0,
+            total_duration_ms INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(date_local, engine_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS lifetime_metrics (
+            id                      INTEGER PRIMARY KEY CHECK (id = 1),
+            total_words             INTEGER NOT NULL DEFAULT 0,
+            total_dictations        INTEGER NOT NULL DEFAULT 0,
+            total_wpm_weighted_sum  REAL NOT NULL DEFAULT 0.0,
+            first_use_date          TEXT,
+            current_streak_days     INTEGER NOT NULL DEFAULT 0,
+            longest_streak_days     INTEGER NOT NULL DEFAULT 0,
+            last_streak_date        TEXT,
+            typing_baseline_wpm     REAL
+        );
+        ",
+    )
+    .map_err(|e| format!("Migration v3 failed: {e}"))?;
+
+    info!("Applied migration v3");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +210,23 @@ mod tests {
         assert!(tables.contains(&"profile_settings".to_string()));
         assert!(tables.contains(&"vocabulary_collections".to_string()));
         assert!(tables.contains(&"vocabulary_entries".to_string()));
+    }
+
+    #[test]
+    fn v3_creates_metrics_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        run(&conn).unwrap();
+
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert!(tables.contains(&"metrics_daily".to_string()));
+        assert!(tables.contains(&"metrics_daily_engine".to_string()));
+        assert!(tables.contains(&"lifetime_metrics".to_string()));
     }
 }

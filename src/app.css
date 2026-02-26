@@ -16,3 +16,35 @@
   --color-status-processing: #f59e0b;
   --color-status-success: #22c55e;
 }
+
+/* Light theme overrides */
+.light {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f5f5f5;
+  --color-bg-surface: #e8e8e8;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #555555;
+  --color-text-muted: #888888;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-border: #d4d4d4;
+  --color-status-recording: #dc2626;
+  --color-status-processing: #d97706;
+  --color-status-success: #16a34a;
+}
+
+/* High-contrast theme — WCAG AAA ratios, strong borders */
+.high-contrast {
+  --color-bg-primary: #000000;
+  --color-bg-secondary: #111111;
+  --color-bg-surface: #1a1a1a;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #e0e0e0;
+  --color-text-muted: #b0b0b0;
+  --color-accent: #5cb8ff;
+  --color-accent-hover: #8ad0ff;
+  --color-border: #808080;
+  --color-status-recording: #ff4444;
+  --color-status-processing: #ffcc00;
+  --color-status-success: #44ff44;
+}

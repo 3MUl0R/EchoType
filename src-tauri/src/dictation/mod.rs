@@ -763,13 +763,6 @@ async fn save_to_history(
         (enabled, private, engine_id, max_count)
     };
 
-    if !enabled || private_mode {
-        if private_mode {
-            info!("Private mode: skipping history save and audio storage");
-        }
-        return;
-    }
-
     let now = chrono::Utc::now().to_rfc3339();
     let duration_ms = (audio.duration_secs() * 1000.0) as i64;
 
@@ -781,6 +774,36 @@ async fn save_to_history(
     } else {
         None
     };
+
+    if private_mode {
+        info!("Private mode: skipping history save, audio storage, and metrics");
+        return;
+    }
+
+    // Record metrics (always, unless private mode; skip empty transcriptions)
+    if let Some(wpm_val) = wpm {
+        let wc = word_count as i64;
+        if wc > 0 {
+            let date_local = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let engine_label = engine_id.as_deref().unwrap_or("unknown");
+            let conn = db.lock().await;
+            if let Err(e) = crate::db::metrics::record_dictation(
+                &conn,
+                &date_local,
+                wc,
+                duration_ms,
+                wpm_val,
+                engine_label,
+            ) {
+                error!(%e, "Failed to record metrics");
+            }
+            drop(conn);
+        }
+    }
+
+    if !enabled {
+        return;
+    }
 
     // Save audio to WAV file (no DB lock needed)
     let audio_rel_path = save_audio_wav(app, audio, &now);

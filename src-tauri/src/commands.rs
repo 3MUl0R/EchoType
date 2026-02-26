@@ -876,3 +876,51 @@ pub async fn activate_local_engine(
     info!(model = %model_id, "Local engine activated");
     Ok(())
 }
+
+// ── Metrics Commands ──────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_metrics_today(
+    state: State<'_, AppState>,
+) -> Result<Option<crate::db::metrics::DailyMetrics>, String> {
+    let date_local = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let conn = state.db.lock().await;
+    crate::db::metrics::get_daily(&conn, &date_local)
+}
+
+#[tauri::command]
+pub async fn get_metrics_range(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<Vec<crate::db::metrics::DailyMetrics>, String> {
+    let conn = state.db.lock().await;
+    crate::db::metrics::get_daily_range(&conn, &from, &to)
+}
+
+#[tauri::command]
+pub async fn get_engine_breakdown(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<Vec<crate::db::metrics::DailyEngineMetrics>, String> {
+    let conn = state.db.lock().await;
+    crate::db::metrics::get_engine_breakdown(&conn, &from, &to)
+}
+
+#[tauri::command]
+pub async fn get_lifetime_metrics(
+    state: State<'_, AppState>,
+) -> Result<crate::db::metrics::LifetimeMetrics, String> {
+    let conn = state.db.lock().await;
+    crate::db::metrics::get_lifetime(&conn)
+}
+
+#[tauri::command]
+pub async fn set_typing_baseline(state: State<'_, AppState>, wpm: f64) -> Result<(), String> {
+    if wpm.is_nan() || wpm <= 0.0 || wpm > 500.0 {
+        return Err("Typing baseline must be between 1 and 500 WPM".to_string());
+    }
+    let conn = state.db.lock().await;
+    crate::db::metrics::set_typing_baseline(&conn, wpm)
+}

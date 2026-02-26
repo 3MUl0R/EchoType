@@ -20,6 +20,8 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to create menu item: {e}"))?;
     let history = MenuItem::with_id(app, "history", "History", true, None::<&str>)
         .map_err(|e| format!("Failed to create menu item: {e}"))?;
+    let dashboard = MenuItem::with_id(app, "dashboard", "Dashboard", true, None::<&str>)
+        .map_err(|e| format!("Failed to create menu item: {e}"))?;
     let private = MenuItem::with_id(app, "private", "Private Mode", true, None::<&str>)
         .map_err(|e| format!("Failed to create menu item: {e}"))?;
     let sep = PredefinedMenuItem::separator(app)
@@ -27,8 +29,13 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
     let quit = MenuItem::with_id(app, "quit", "Quit EchoType", true, None::<&str>)
         .map_err(|e| format!("Failed to create menu item: {e}"))?;
 
-    let menu = Menu::with_items(app, &[&show, &settings, &history, &private, &sep, &quit])
-        .map_err(|e| format!("Failed to create tray menu: {e}"))?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show, &settings, &history, &dashboard, &private, &sep, &quit,
+        ],
+    )
+    .map_err(|e| format!("Failed to create tray menu: {e}"))?;
 
     let idle_icon = make_icon(&DictationState::Idle);
 
@@ -50,6 +57,10 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
             "history" => {
                 show_main_window(app);
                 let _ = app.emit("navigate", "history");
+            }
+            "dashboard" => {
+                show_main_window(app);
+                let _ = app.emit("navigate", "dashboard");
             }
             "private" => {
                 let app = app.clone();

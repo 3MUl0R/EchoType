@@ -7,6 +7,8 @@
   import ModelManager from "$lib/components/ModelManager.svelte";
   import History from "$lib/components/History.svelte";
   import Settings from "$lib/components/Settings.svelte";
+  import Dashboard from "$lib/components/Dashboard.svelte";
+  import { initTheme } from "$lib/theme/index.js";
 
   type DictationState =
     | "idle"
@@ -15,7 +17,7 @@
     | "editing"
     | "inserting";
 
-  type Page = "dictation" | "models" | "history" | "settings";
+  type Page = "dictation" | "models" | "history" | "dashboard" | "settings";
 
   interface DictationEvent {
     state: DictationState;
@@ -40,18 +42,19 @@
     errorMessage = error;
   }
 
-  // Fetch initial dictation state on mount
+  // Fetch initial dictation state and theme on mount
   $effect(() => {
     invoke<DictationState>("get_dictation_state").then((state) => {
       dictationState = state;
     });
+    initTheme();
   });
 
   // Listen for navigation events from the system tray
   $effect(() => {
     const unlisten = listen<string>("navigate", (event) => {
       const page = event.payload as Page;
-      if (["dictation", "models", "history", "settings"].includes(page)) {
+      if (["dictation", "models", "history", "dashboard", "settings"].includes(page)) {
         currentPage = page;
       }
     });
@@ -88,7 +91,7 @@
   });
 </script>
 
-<div class="dark min-h-screen bg-bg-primary text-text-primary">
+<div class="min-h-screen bg-bg-primary text-text-primary">
   <header class="border-b border-border px-6 py-4">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold">{t("app.title")}</h1>
@@ -148,6 +151,18 @@
       </li>
       <li>
         <button
+          onclick={() => (currentPage = "dashboard")}
+          class="rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent
+            {currentPage === 'dashboard'
+            ? 'text-accent hover:text-accent-hover'
+            : 'text-text-secondary hover:text-text-primary'}"
+          aria-current={currentPage === "dashboard" ? "page" : undefined}
+        >
+          {t("nav.dashboard")}
+        </button>
+      </li>
+      <li>
+        <button
           onclick={() => (currentPage = "settings")}
           class="rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent
             {currentPage === 'settings'
@@ -187,6 +202,10 @@
   {:else if currentPage === "history"}
     <main>
       <History />
+    </main>
+  {:else if currentPage === "dashboard"}
+    <main>
+      <Dashboard />
     </main>
   {:else if currentPage === "settings"}
     <main>
