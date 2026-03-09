@@ -973,6 +973,177 @@ fn emit_state(app: &AppHandle, event: &DictationEvent) {
     if let Err(e) = app.emit("dictation:state", event) {
         error!(%e, "Failed to emit dictation state");
     }
+
+    // Manage the overlay window based on dictation state
+    manage_overlay(app, &event.state);
+}
+
+/// Show or hide the floating status overlay window.
+/// Window operations are dispatched to the main thread to avoid panics.
+fn manage_overlay(app: &AppHandle, state: &DictationState) {
+    let app = app.clone();
+    let state = state.clone();
+    let show = matches!(
+        state,
+        DictationState::Recording | DictationState::Transcribing | DictationState::Inserting
+    );
+
+    if let Err(e) = app.clone().run_on_main_thread(move || {
+        use tauri::Manager;
+
+        if show {
+            if app.get_webview_window("overlay").is_none() {
+                match create_overlay_window(&app) {
+                    Ok(()) => {
+                        info!("Overlay window created");
+                        // Re-emit state after a short delay so the newly created
+                        // window has time to load and register its event listener.
+                        let app2 = app.clone();
+                        let state2 = state.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                            let event = DictationEvent {
+                                state: state2,
+                                text: None,
+                                error: None,
+                                latency_ms: None,
+                            };
+                            if let Err(e) = app2.emit("dictation:state", &event) {
+                                warn!(%e, "Failed to re-emit state to overlay");
+                            }
+                        });
+                    }
+                    Err(e) => warn!(%e, "Failed to create overlay window"),
+                }
+            }
+        } else {
+            if let Some(w) = app.get_webview_window("overlay") {
+                let _ = w.close();
+            }
+        }
+    }) {
+        warn!(%e, "Failed to dispatch overlay task to main thread");
+    }
+}
+
+/// Find the monitor containing the foreground window, returning
+/// (x, y, width, height) in logical coordinates suitable for Tauri positioning.
+fn find_active_monitor(app: &AppHandle) -> (f64, f64, f64, f64) {
+    // Get the foreground window's center point (physical pixels)
+    #[cfg(target_os = "windows")]
+    let fg_center: Option<(i32, i32)> = {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect};
+        use windows_sys::Win32::Foundation::RECT;
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if !hwnd.is_null() {
+                let mut rect: RECT = std::mem::zeroed();
+                if GetWindowRect(hwnd, &mut rect) != 0 {
+                    Some(((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    };
+    #[cfg(not(target_os = "windows"))]
+    let fg_center: Option<(i32, i32)> = None;
+
+    // Iterate Tauri's monitors (which use correct per-monitor DPI)
+    // and find the one containing the foreground window center point.
+    if let Ok(monitors) = app.available_monitors() {
+        if let Some((cx, cy)) = fg_center {
+            for monitor in &monitors {
+                let pos = monitor.position(); // physical pixel origin
+                let size = monitor.size();     // physical pixel size
+                let x0 = pos.x;
+                let y0 = pos.y;
+                let x1 = x0 + size.width as i32;
+                let y1 = y0 + size.height as i32;
+                if cx >= x0 && cx < x1 && cy >= y0 && cy < y1 {
+                    let scale = monitor.scale_factor();
+                    return (
+                        pos.x as f64 / scale,
+                        pos.y as f64 / scale,
+                        size.width as f64 / scale,
+                        size.height as f64 / scale,
+                    );
+                }
+            }
+        }
+        // Fallback: use the primary monitor
+        if let Some(m) = monitors.first() {
+            let pos = m.position();
+            let size = m.size();
+            let scale = m.scale_factor();
+            return (
+                pos.x as f64 / scale,
+                pos.y as f64 / scale,
+                size.width as f64 / scale,
+                size.height as f64 / scale,
+            );
+        }
+    }
+
+    // Last resort fallback
+    (0.0, 0.0, 1920.0, 1080.0)
+}
+
+/// Create the overlay window with transparent, borderless, always-on-top properties.
+/// Must be called on the main thread.
+fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
+    use tauri::WebviewWindowBuilder;
+
+    // Check if the overlay is enabled (use try_lock to avoid panic in async context)
+    let app_state: tauri::State<'_, AppState> = app.state();
+    let enabled = match app_state.db.try_lock() {
+        Ok(conn) => {
+            crate::settings::get_typed::<bool>(&conn, crate::settings::keys::OVERLAY_ENABLED)
+                .unwrap_or(true)
+        }
+        Err(_) => true, // Default to showing overlay if lock unavailable
+    };
+    info!(enabled = enabled, "create_overlay_window check");
+    if !enabled {
+        return Ok(());
+    }
+
+    // Find the monitor containing the foreground window so the overlay
+    // appears on the correct display in multi-monitor setups.
+    let (monitor_x, monitor_y, screen_width, screen_height) = find_active_monitor(app);
+
+    // The window needs extra padding around the pill so the glassmorphism
+    // blur/glow/shadow effects don't get clipped at the window edges.
+    let padding = 40.0;
+    let pill_width = 160.0;
+    let pill_height = 44.0;
+    let win_width = pill_width + padding * 2.0;
+    let win_height = pill_height + padding * 2.0;
+    let x = monitor_x + (screen_width - win_width) / 2.0;
+    // Position 1/3 up from the bottom of the monitor's work area
+    let y = monitor_y + screen_height - (screen_height / 3.0) - padding;
+
+    info!(x = x, y = y, win_width = win_width, win_height = win_height, "Overlay position calculated");
+
+    let url = tauri::WebviewUrl::App("overlay.html".into());
+    let _window = WebviewWindowBuilder::new(app, "overlay", url)
+        .title("EchoType Overlay")
+        .inner_size(win_width, win_height)
+        .position(x, y)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .shadow(false)
+        .build()
+        .map_err(|e| format!("Failed to create overlay window: {e}"))?;
+
+    info!("Overlay window created");
+    Ok(())
 }
 
 #[cfg(test)]
