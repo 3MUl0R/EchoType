@@ -16,7 +16,7 @@ else
 fi
 
 echo "--- Fixing ESLint issues ---" >&2
-if npx eslint src/ --fix 2>&2; then
+if bunx eslint src/ --fix 2>&2; then
   echo "status=ok fix=eslint" >&1
 else
   echo "status=fail fix=eslint" >&1

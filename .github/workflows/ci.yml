@@ -40,11 +40,8 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -56,8 +53,8 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Check formatting
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
@@ -69,10 +66,10 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Run ESLint
-        run: npx eslint 'src/**/*.{ts,svelte}'
+        run: bunx eslint 'src/**/*.{ts,svelte}'
 
       - name: Run Vitest
-        run: npx vitest run
+        run: bunx vitest run
 
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
@@ -87,11 +84,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install cargo-audit
         run: cargo install cargo-audit
@@ -99,8 +93,8 @@ jobs:
       - name: Run cargo audit
         run: cargo audit --file src-tauri/Cargo.lock
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Run npm audit
-        run: npm audit --audit-level=high
+      - name: Run bun audit
+        run: bun pm audit --level high

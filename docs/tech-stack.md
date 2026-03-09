@@ -297,7 +297,7 @@ macOS architectures (aarch64 and x86_64).
 The Tauri updater requires a signing keypair. Generate once:
 
 ```
-npx @tauri-apps/cli signer generate -w ~/.tauri/echotype.key
+bunx @tauri-apps/cli signer generate -w ~/.tauri/echotype.key
 ```
 
 Public key goes in `tauri.conf.json`. Private key is a CI secret
@@ -386,7 +386,7 @@ The repository should provide stable non-interactive wrappers:
 | `./scripts/agent/check` | Run lint, tests, and validation checks |
 | `./scripts/agent/logs` | Print recent logs and diagnostics |
 
-These wrappers can call `cargo`, `npm`, and Tauri commands internally, but the public
+These wrappers can call `cargo`, `bun`, and Tauri commands internally, but the public
 entry points should stay stable so user prompts and AI workflows do not break.
 
 ### Automation Requirements
@@ -408,7 +408,7 @@ We treat dependency management as a security concern, not a convenience concern.
 - **Update deliberately, not automatically.** Dependencies are updated by a human who
   reviews the diff, not by a bot that opens PRs on a schedule.
 - **Vendor the high-risk side.** Rust crates compile into the native binary and run with
-  full system privileges. npm packages compile into sandboxed JS in a webview. We vendor
+  full system privileges. Frontend packages compile into sandboxed JS in a webview. We vendor
   the Rust side.
 - **Minimize transitive dependencies.** Prefer crates with small dependency trees. Prefer
   pure Rust crates over those with C bindings where the tradeoff is reasonable.
@@ -444,23 +444,23 @@ a prebuilt ONNX Runtime binary from Microsoft at build time. This binary is cach
 and pointed to via the `ORT_LIB_LOCATION` environment variable, so builds do not make
 network requests. The ORT binary version is pinned and its checksum verified.
 
-### npm: Lockfile-Pinned, Not Vendored
+### Frontend: Bun with Lockfile
 
-npm packages are lower risk for this project -- they compile into JS that runs inside
-Tauri's webview sandbox. The JS layer can only call Rust backend functions that we
-explicitly expose as Tauri commands. It cannot access the file system, network, or OS
+Frontend packages are lower risk for this project -- they compile into JS that runs
+inside Tauri's webview sandbox. The JS layer can only call Rust backend functions that
+we explicitly expose as Tauri commands. It cannot access the file system, network, or OS
 APIs directly.
 
-npm dependencies are pinned via `package-lock.json` (exact versions, integrity hashes).
-We do not vendor `node_modules/`. The lockfile is committed and CI uses `npm ci` (which
-installs from the lockfile exactly, failing if it's out of sync with `package.json`).
+Dependencies are pinned via `bun.lock` (exact versions, integrity hashes). We do not
+vendor `node_modules/`. The lockfile is committed and CI uses `bun install --frozen-lockfile`
+(which installs from the lockfile exactly, failing if it's out of sync with `package.json`).
 
 ### CI Auditing
 
 | Tool | Runs on | Purpose |
 |------|---------|---------|
 | `cargo audit` | Every PR and push to main | Check vendored Rust crates against RustSec advisory database |
-| `npm audit` | Every PR and push to main | Check npm packages against known vulnerabilities |
+| `bun pm audit` | Every PR and push to main | Check packages against known vulnerabilities |
 
 `cargo audit` runs against the vendored source, not the registry. It flags known CVEs
 in any crate in the dependency tree. A flagged advisory does not necessarily block the
@@ -475,7 +475,7 @@ aware and can make an informed decision.
 | whisper.cpp | Compiled from vendored C source via `whisper-rs-sys` | No | Yes |
 | SQLite | Compiled from vendored C source via `rusqlite` bundled feature | No | Yes |
 | ONNX Runtime | Prebuilt binary from Microsoft, cached and pinned | No (cached) | Yes (linked) |
-| npm packages | Lockfile-pinned, installed from registry | Yes | No (sandboxed JS in webview) |
+| Frontend packages | Lockfile-pinned (bun), installed from registry | Yes | No (sandboxed JS in webview) |
 | Silero VAD model | ONNX weights bundled by `voice_activity_detector` crate | No (vendored) | Yes (embedded) |
 
 ---

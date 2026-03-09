@@ -12,7 +12,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: "npx vite dev --port 1420",
+    command: "bunx --bun vite dev --port 1420",
     port: 1420,
     reuseExistingServer: !process.env.CI,
   },

@@ -45,11 +45,8 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -61,8 +58,8 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Build and create release
         uses: tauri-apps/tauri-action@v0

@@ -80,7 +80,7 @@ scripts work end-to-end, cross-cutting standards are in place.
 - Structured logging with `tracing` (daily rotation, JSON format, 3-day cleanup)
 - Agent scripts: `bootstrap`, `dev`, `check`, `logs`, `fix`
 - Deterministic exit codes and parseable output from all agent scripts
-- GitHub Actions CI: build matrix (macOS, Windows, Linux), `cargo audit`, `npm audit`
+- GitHub Actions CI: build matrix (macOS, Windows, Linux), `cargo audit`, `bun pm audit`
 - Rust unit test scaffolding (`cargo test`), Vitest setup, Playwright config
 - `clap` CLI skeleton (parse `--version`, `--help` for now)
 - String externalization pattern for UI (i18n scaffolding)

@@ -42,7 +42,7 @@ Initialize the Tauri 2 + Svelte 5 + Vite project and get a window on screen.
      for full tray-only behavior in M6. Until then, the app is accessible via
      `Cmd+Tab` and the window itself; this just reduces visual clutter early.
 
-5. **Verify:** `npm run tauri dev` launches a window with the Tailwind-styled
+5. **Verify:** `bun run tauri dev` launches a window with the Tailwind-styled
    placeholder page.
 
 ### Files Created
@@ -163,7 +163,7 @@ has real tests to call.
    - Create `vitest.config.ts` (or configure in `vite.config.ts`)
    - Write a trivial `App.test.ts` that renders `App.svelte` and checks it mounts
    - Install `@tauri-apps/api/mocks` for mocking Tauri IPC in tests
-   - Verify `npm run test` runs and passes
+   - Verify `bun run test` runs and passes
 
 3. **Playwright E2E scaffold**
    - Install `@playwright/test` as a dev dependency
@@ -192,7 +192,7 @@ has real tests to call.
    - Document the accessibility contract in a code comment or `CONTRIBUTING.md` note:
      every UI component must support keyboard navigation and screen reader
 
-7. **npm scripts in package.json**
+7. **Scripts in package.json**
    - `"dev"`: `tauri dev`
    - `"build"`: `tauri build`
    - `"test"`: `vitest run`
@@ -200,9 +200,9 @@ has real tests to call.
 
 8. **Verify:**
    - `cargo test` passes in `src-tauri/`
-   - `npm run test` (Vitest) passes
-   - `npm run test:e2e` (Playwright) passes against dev server
-   - `npm run lint` passes
+   - `bun run test` (Vitest) passes
+   - `bun run test:e2e` (Playwright) passes against dev server
+   - `bun run lint` passes
    - i18n helper resolves string keys correctly
    - Tab key navigates through the shell layout logically
 
@@ -240,20 +240,20 @@ everything from the start.
    - All scripts must be non-interactive (no prompts, no user input required)
 
    **`scripts/agent/bootstrap`:**
-   - Check for required toolchains: `rustc`, `cargo`, `node`, `npm`
+   - Check for required toolchains: `rustc`, `cargo`, `bun`
    - Check for Rust components: `rustfmt`, `clippy` (install via `rustup component add`)
    - Check for platform-specific Tauri build dependencies:
      - Linux: `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, etc.
      - macOS: Xcode Command Line Tools
      - Windows: WebView2 (usually pre-installed on Windows 10+)
    - Print clear error messages if anything is missing, with install hints
-   - Run `npm ci` to install frontend dependencies from lockfile
+   - Run `bun install --frozen-lockfile` to install frontend dependencies from lockfile
    - Run `cargo check --manifest-path src-tauri/Cargo.toml` to verify Rust compilation
    - Idempotent: safe to run repeatedly; re-running changes nothing if already set up
    - Exit 0 if everything succeeds
 
    **`scripts/agent/dev`:**
-   - Run `npm run tauri dev` (or equivalent)
+   - Run `bun run tauri dev` (or equivalent)
    - Pass through any arguments
    - Exit with the child process exit code
 
@@ -261,8 +261,8 @@ everything from the start.
    - Run `cargo fmt --check --manifest-path src-tauri/Cargo.toml`
    - Run `cargo clippy --manifest-path src-tauri/Cargo.toml`
    - Run `cargo test --manifest-path src-tauri/Cargo.toml`
-   - Run `npm run lint`
-   - Run `npm run test` (Vitest)
+   - Run `bun run lint`
+   - Run `bun run test` (Vitest)
    - Print summary: X passed, Y failed
    - Exit non-zero if any check fails
 
@@ -274,7 +274,7 @@ everything from the start.
 
    **`scripts/agent/fix`:**
    - Run `cargo fmt --manifest-path src-tauri/Cargo.toml` (auto-fix formatting)
-   - Run `npm run lint -- --fix`
+   - Run `bun run lint -- --fix`
    - Print what was changed
    - Exit 0 if fixes applied, exit 1 if unfixable issues remain
 
@@ -293,7 +293,7 @@ everything from the start.
      8. Build with `tauri-action` (handles platform packaging + macOS universal builds)
    - Separate audit job (can run on one platform):
      - `cargo audit` (install `cargo-audit` first)
-     - `npm audit`
+     - `bun pm audit`
    - **Windows CI note:** Agent scripts run in Git Bash (default shell for bash steps
      in GitHub Actions on Windows)
 
@@ -321,7 +321,7 @@ scripts/agent/fix
 
 M1 is complete when all of the following are true:
 
-- [ ] `npm run tauri dev` launches a window with a Tailwind-styled page
+- [ ] `bun run tauri dev` launches a window with a Tailwind-styled page
 - [ ] `cargo build --manifest-path src-tauri/Cargo.toml` succeeds from vendored sources (no network)
 - [ ] Structured JSON logs are written to the app data directory on startup
 - [ ] Each log entry contains required fields: `timestamp`, `level`, `target`, `message`
@@ -337,7 +337,7 @@ M1 is complete when all of the following are true:
 - [ ] `./scripts/agent/logs` prints recent log output (or helpful empty-state message)
 - [ ] `./scripts/agent/bootstrap` is idempotent (re-running succeeds without side effects)
 - [ ] GitHub Actions CI builds on macOS, Windows, and Linux
-- [ ] `cargo audit` and `npm audit` run in CI
+- [ ] `cargo audit` and `bun pm audit` run in CI
 - [ ] Vitest renders App.svelte and passes
 - [ ] Playwright loads the dev server and passes
 - [ ] UI strings use the i18n helper (no hardcoded user-facing text)

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.echotype.app",
   "build": {
-    "beforeDevCommand": "npx vite dev",
+    "beforeDevCommand": "bunx --bun vite dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npx vite build",
+    "beforeBuildCommand": "bunx --bun vite build",
     "frontendDist": "../dist"
   },
   "app": {

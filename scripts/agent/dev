@@ -4,4 +4,4 @@ set -euo pipefail
 # EchoType dev script
 # Starts the app in development mode.
 
-exec npm run tauri dev -- "$@"
+exec bun run tauri dev -- "$@"

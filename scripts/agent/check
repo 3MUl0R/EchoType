@@ -24,8 +24,8 @@ run_check() {
 run_check "cargo-fmt" cargo fmt --check --manifest-path src-tauri/Cargo.toml
 run_check "cargo-clippy" cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 run_check "cargo-test" cargo test --manifest-path src-tauri/Cargo.toml
-run_check "eslint" npx eslint src/
-run_check "vitest" npx vitest run
+run_check "eslint" bunx eslint src/
+run_check "vitest" bunx vitest run
 
 echo "summary passed=$passed failed=$failed" >&1
 

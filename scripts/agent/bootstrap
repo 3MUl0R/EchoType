@@ -25,8 +25,7 @@ echo "--- EchoType Bootstrap ---" >&2
 # Check required toolchains
 check_command rustc "Install Rust via https://rustup.rs"
 check_command cargo "Install Rust via https://rustup.rs"
-check_command node "Install Node.js via https://nodejs.org"
-check_command npm "Install Node.js via https://nodejs.org"
+check_command bun "Install Bun via https://bun.sh"
 
 # Check Rust components
 if command -v rustup &>/dev/null; then
@@ -68,12 +67,12 @@ case "$(uname -s)" in
     ;;
 esac
 
-# Install npm dependencies
-echo "Installing npm dependencies..." >&2
-if npm ci --ignore-scripts 2>&2; then
-  echo "status=ok component=npm-deps" >&1
+# Install frontend dependencies
+echo "Installing frontend dependencies..." >&2
+if bun install --frozen-lockfile 2>&2; then
+  echo "status=ok component=bun-deps" >&1
 else
-  echo "status=fail component=npm-deps" >&1
+  echo "status=fail component=bun-deps" >&1
   errors=$((errors + 1))
 fi
 
