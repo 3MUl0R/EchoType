@@ -1,6 +1,6 @@
 import en from "./en.json";
 
-type StringKeys = keyof typeof en;
+export type StringKeys = keyof typeof en;
 
 const strings: Record<string, string> = en;
 

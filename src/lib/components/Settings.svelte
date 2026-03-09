@@ -1,6 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { t } from "$lib/i18n/index.js";
+  import { t, type StringKeys } from "$lib/i18n/index.js";
   import { setTheme, type Theme } from "$lib/theme/index.js";
   import PermissionGuide from "./PermissionGuide.svelte";
   import DiagnosticInfo from "./DiagnosticInfo.svelte";
@@ -70,7 +70,7 @@
   type SettingsSection = "dictation" | "engine" | "microphone" | "feedback" | "theme" | "history" | "cloud" | "profiles" | "vocabulary" | "advanced" | "diagnostics";
   let activeSection: SettingsSection = $state("dictation");
 
-  const sectionNav: { id: SettingsSection; labelKey: string }[] = [
+  const sectionNav: { id: SettingsSection; labelKey: StringKeys }[] = [
     { id: "dictation", labelKey: "settings.section_dictation" },
     { id: "cloud", labelKey: "settings.section_cloud" },
     { id: "engine", labelKey: "settings.section_engine" },

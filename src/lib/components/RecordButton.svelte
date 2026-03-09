@@ -11,7 +11,7 @@
 
   let { onTranscription, onError }: Props = $props();
 
-  let state: RecordState = $state("idle");
+  let recordState: RecordState = $state("idle");
   let elapsedSeconds = $state(0);
   let timerInterval: ReturnType<typeof setInterval> | null = $state(null);
 
@@ -43,11 +43,11 @@
   }
 
   async function handleClick() {
-    if (state === "processing") return;
+    if (recordState === "processing") return;
 
-    if (state === "idle") {
+    if (recordState === "idle") {
       await startRecording();
-    } else if (state === "recording") {
+    } else if (recordState === "recording") {
       await stopRecording();
     }
   }
@@ -55,7 +55,7 @@
   async function startRecording() {
     try {
       await invoke("start_capture");
-      state = "recording";
+      recordState = "recording";
       startTimer();
     } catch (e) {
       onError?.(String(e));
@@ -64,7 +64,7 @@
 
   async function stopRecording() {
     stopTimer();
-    state = "processing";
+    recordState = "processing";
 
     try {
       await invoke<number>("stop_capture");
@@ -72,10 +72,10 @@
         "transcribe_audio",
         { language: null },
       );
-      state = "idle";
+      recordState = "idle";
       onTranscription?.(result.text, result.duration_ms);
     } catch (e) {
-      state = "idle";
+      recordState = "idle";
       onError?.(String(e));
     }
   }
@@ -84,22 +84,22 @@
 <div class="flex flex-col items-center gap-4">
   <button
     onclick={handleClick}
-    disabled={state === "processing"}
-    aria-pressed={state === "recording"}
-    aria-label={state === "idle"
+    disabled={recordState === "processing"}
+    aria-pressed={recordState === "recording"}
+    aria-label={recordState === "idle"
       ? t("record.idle")
-      : state === "recording"
+      : recordState === "recording"
         ? t("record.stop")
         : t("record.processing")}
     class="relative flex h-20 w-20 items-center justify-center rounded-full
       transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-accent/50
-      {state === 'idle'
+      {recordState === 'idle'
       ? 'bg-accent hover:bg-accent-hover cursor-pointer'
-      : state === 'recording'
+      : recordState === 'recording'
         ? 'bg-status-recording animate-pulse cursor-pointer'
         : 'bg-status-processing cursor-wait'}"
   >
-    {#if state === "idle"}
+    {#if recordState === "idle"}
       <!-- Microphone icon -->
       <svg
         class="h-8 w-8 text-white"
@@ -120,7 +120,7 @@
           d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"
         />
       </svg>
-    {:else if state === "recording"}
+    {:else if recordState === "recording"}
       <!-- Stop icon -->
       <svg
         class="h-8 w-8 text-white"
@@ -156,9 +156,9 @@
   </button>
 
   <span class="text-sm text-text-secondary" aria-live="polite">
-    {#if state === "idle"}
+    {#if recordState === "idle"}
       {t("record.idle")}
-    {:else if state === "recording"}
+    {:else if recordState === "recording"}
       <span aria-label={t("record.timer")}>{formatTime(elapsedSeconds)}</span>
       — {t("record.recording")}
     {:else}
