@@ -1091,19 +1091,9 @@
         {#if settings.engine_type === "cloud" && settings.cloud_provider}
           <div class="flex items-center justify-between">
             <span class="text-sm">{t("settings.cloud_provider")}</span>
-            <select
-              value={settings.cloud_provider}
-              onchange={(e) => {
-                const val = (e.target as HTMLSelectElement).value;
-                if (val) requestActivateCloud(val);
-              }}
-              disabled={engineSwitching}
-              class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
-            >
-              {#each cloudProviders.filter((p) => p.has_key) as provider (provider.id)}
-                <option value={provider.id}>{provider.name}</option>
-              {/each}
-            </select>
+            <span class="text-sm text-text-secondary">
+              {cloudProviders.find((p) => p.id === settings?.cloud_provider)?.name ?? settings.cloud_provider}
+            </span>
           </div>
         {/if}
 
