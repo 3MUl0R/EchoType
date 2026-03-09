@@ -18,10 +18,16 @@
 
   async function checkReadiness() {
     try {
-      const models = await invoke<{ installed: boolean }[]>(
-        "list_available_models",
-      );
-      hasModel = models.some((m) => m.installed);
+      // If using a cloud engine, a local model isn't required
+      const allSettings = await invoke<{ engine_type: string }>("get_all_settings");
+      if (allSettings.engine_type === "cloud") {
+        hasModel = true;
+      } else {
+        const models = await invoke<{ installed: boolean }[]>(
+          "list_available_models",
+        );
+        hasModel = models.some((m) => m.installed);
+      }
 
       const perms = await invoke<{ microphone: boolean }>("check_permissions");
       hasMic = perms.microphone;

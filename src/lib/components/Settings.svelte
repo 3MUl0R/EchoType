@@ -65,6 +65,23 @@
     created_at: string;
   }
 
+  type SettingsSection = "dictation" | "engine" | "microphone" | "feedback" | "theme" | "history" | "cloud" | "profiles" | "vocabulary" | "advanced" | "diagnostics";
+  let activeSection: SettingsSection = $state("dictation");
+
+  const sectionNav: { id: SettingsSection; labelKey: string }[] = [
+    { id: "dictation", labelKey: "settings.section_dictation" },
+    { id: "engine", labelKey: "settings.section_engine" },
+    { id: "microphone", labelKey: "settings.section_microphone" },
+    { id: "feedback", labelKey: "settings.section_feedback" },
+    { id: "theme", labelKey: "settings.theme" },
+    { id: "history", labelKey: "settings.section_history" },
+    { id: "cloud", labelKey: "settings.section_cloud" },
+    { id: "profiles", labelKey: "settings.section_profiles" },
+    { id: "vocabulary", labelKey: "settings.section_vocabulary" },
+    { id: "advanced", labelKey: "settings.section_advanced" },
+    { id: "diagnostics", labelKey: "settings.diagnostics" },
+  ];
+
   let settings: AllSettings | null = $state(null);
   let audioDevices: AudioDevice[] = $state([]);
   let profiles: Profile[] = $state([]);
@@ -651,33 +668,50 @@
   });
 </script>
 
-<div class="mx-auto max-w-2xl px-6 py-8">
-  <h2 class="mb-6 text-lg font-semibold">{t("settings.title")}</h2>
+<div class="flex h-full">
+  <!-- Left sidebar nav -->
+  <nav class="w-44 shrink-0 border-r border-border overflow-y-auto py-4 px-2">
+    {#each sectionNav as sec (sec.id)}
+      <button
+        class="w-full rounded px-3 py-1.5 text-left text-xs transition-colors {activeSection === sec.id
+          ? 'bg-accent/15 text-accent font-medium'
+          : 'text-text-secondary hover:bg-bg-secondary hover:text-text-primary'}"
+        onclick={() => (activeSection = sec.id)}
+      >
+        {t(sec.labelKey)}
+      </button>
+    {/each}
+  </nav>
 
-  {#if errorMessage}
-    <p
-      class="mb-4 rounded bg-status-recording/20 p-3 text-sm text-status-recording"
-      role="alert"
-    >
-      {errorMessage}
-    </p>
-  {/if}
+  <!-- Main content -->
+  <div class="flex-1 overflow-y-auto px-6 py-6">
+    <h2 class="mb-6 text-lg font-semibold">{t("settings.title")}</h2>
 
-  {#if successMessage}
-    <p
-      class="mb-4 rounded bg-status-success/20 p-3 text-sm text-status-success"
-      role="status"
-      aria-live="polite"
-    >
-      {successMessage}
-    </p>
-  {/if}
+    {#if errorMessage}
+      <p
+        class="mb-4 rounded bg-status-recording/20 p-3 text-sm text-status-recording"
+        role="alert"
+      >
+        {errorMessage}
+      </p>
+    {/if}
 
-  <PermissionGuide />
+    {#if successMessage}
+      <p
+        class="mb-4 rounded bg-status-success/20 p-3 text-sm text-status-success"
+        role="status"
+        aria-live="polite"
+      >
+        {successMessage}
+      </p>
+    {/if}
 
-  {#if settings}
-    <!-- Dictation Section -->
-    <section class="mb-8">
+    <PermissionGuide />
+
+    {#if settings}
+      {#if activeSection === "dictation"}
+      <!-- Dictation Section -->
+      <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
         {t("settings.section_dictation")}
       </h3>
@@ -964,7 +998,9 @@
         </div>
       </div>
     </section>
+    {/if}
 
+    {#if activeSection === "engine"}
     <!-- Engine Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1055,7 +1091,9 @@
         </div>
       </div>
     </section>
+    {/if}
 
+    {#if activeSection === "microphone"}
     <!-- Microphone Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1122,6 +1160,9 @@
       </div>
     </section>
 
+    {/if}
+
+    {#if activeSection === "feedback"}
     <!-- Feedback Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1186,6 +1227,9 @@
       </div>
     </section>
 
+    {/if}
+
+    {#if activeSection === "theme"}
     <!-- Appearance Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1213,6 +1257,9 @@
       </div>
     </section>
 
+    {/if}
+
+    {#if activeSection === "history"}
     <!-- History Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1277,6 +1324,9 @@
       </div>
     </section>
 
+    {/if}
+
+    {#if activeSection === "cloud"}
     <!-- Cloud Providers Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1392,6 +1442,9 @@
       {/if}
     </section>
 
+    {/if}
+
+    {#if activeSection === "profiles"}
     <!-- Profiles Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1525,6 +1578,9 @@
       {/if}
     </section>
 
+    {/if}
+
+    {#if activeSection === "vocabulary"}
     <!-- Vocabulary Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1741,7 +1797,9 @@
         </div>
       {/if}
     </section>
+    {/if}
 
+    {#if activeSection === "advanced"}
     <!-- Advanced Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1810,6 +1868,9 @@
       </div>
     </section>
 
+    {/if}
+
+    {#if activeSection === "diagnostics"}
     <!-- Diagnostics Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
@@ -1826,7 +1887,9 @@
       </h3>
       <SelfCheck />
     </section>
+    {/if}
   {/if}
+  </div>
 </div>
 
 <!-- Cloud Opt-In Confirmation Modal -->

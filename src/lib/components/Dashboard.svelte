@@ -435,7 +435,7 @@
           {@const totalEngineWords = engineBreakdown.reduce((s, e) => s + e.total_words, 0) || 1}
           {@const pct = Math.round((eng.total_words / totalEngineWords) * 100)}
           <div class="flex items-center gap-2">
-            <span class="w-24 truncate text-xs">{eng.engine_id}</span>
+            <span class="w-24 truncate text-xs">{eng.engine_id.charAt(0).toUpperCase() + eng.engine_id.slice(1)}</span>
             <div class="flex-1 rounded-full bg-bg-surface h-3">
               <div class="h-3 rounded-full bg-accent" style="width: {pct}%"></div>
             </div>

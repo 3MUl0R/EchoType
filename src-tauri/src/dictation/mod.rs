@@ -760,9 +760,15 @@ async fn save_to_history(
         let private =
             crate::settings::get_typed::<bool>(&conn, crate::settings::keys::PRIVATE_MODE_ENABLED)
                 .unwrap_or(false);
-        let engine_id =
-            crate::settings::get_typed::<String>(&conn, crate::settings::keys::ACTIVE_MODEL_ID)
-                .ok();
+        let engine_id = {
+            let engine_type = crate::settings::get_typed::<String>(&conn, crate::settings::keys::ENGINE_TYPE)
+                .unwrap_or_else(|_| "local".to_string());
+            if engine_type == "cloud" {
+                crate::settings::get_typed::<String>(&conn, crate::settings::keys::CLOUD_PROVIDER).ok()
+            } else {
+                crate::settings::get_typed::<String>(&conn, crate::settings::keys::ACTIVE_MODEL_ID).ok()
+            }
+        };
         let max_count: i64 =
             crate::settings::get_typed(&conn, crate::settings::keys::HISTORY_RETENTION_COUNT)
                 .unwrap_or(50);
