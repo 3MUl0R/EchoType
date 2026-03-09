@@ -455,7 +455,21 @@ pub async fn get_history(
     offset: Option<i64>,
 ) -> Result<Vec<crate::db::history::HistoryEntry>, String> {
     let conn = state.db.lock().await;
-    crate::db::history::list(&conn, limit.unwrap_or(20), offset.unwrap_or(0))
+    let total = crate::db::history::count(&conn).unwrap_or(-1);
+    let lim = limit.unwrap_or(20);
+    let off = offset.unwrap_or(0);
+    tracing::info!(total_rows = total, limit = lim, offset = off, "get_history called");
+    let entries = crate::db::history::list(&conn, lim, off)?;
+    tracing::info!(returned = entries.len(), "get_history result");
+    Ok(entries)
+}
+
+#[tauri::command]
+pub async fn get_history_count(
+    state: State<'_, AppState>,
+) -> Result<i64, String> {
+    let conn = state.db.lock().await;
+    crate::db::history::count(&conn)
 }
 
 #[tauri::command]
@@ -948,11 +962,29 @@ pub async fn get_engine_breakdown(
 }
 
 #[tauri::command]
+pub async fn get_hourly_activity(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<Vec<crate::db::metrics::HourlyActivity>, String> {
+    let conn = state.db.lock().await;
+    crate::db::metrics::get_hourly_activity(&conn, &from, &to)
+}
+
+#[tauri::command]
 pub async fn get_lifetime_metrics(
     state: State<'_, AppState>,
 ) -> Result<crate::db::metrics::LifetimeMetrics, String> {
     let conn = state.db.lock().await;
     crate::db::metrics::get_lifetime(&conn)
+}
+
+#[tauri::command]
+pub async fn get_latency_stats(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::latency::EngineLatencyStats>, String> {
+    let conn = state.db.lock().await;
+    crate::db::latency::get_engine_stats(&conn)
 }
 
 #[tauri::command]

@@ -33,6 +33,24 @@
   --color-status-success: #16a34a;
 }
 
+/* Custom scrollbar — thin, blends with background */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
 /* High-contrast theme — WCAG AAA ratios, strong borders */
 .high-contrast {
   --color-bg-primary: #000000;

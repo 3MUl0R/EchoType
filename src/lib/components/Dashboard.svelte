@@ -12,12 +12,32 @@
     total_wpm_weighted_sum: number;
   }
 
+  interface HourlyActivity {
+    hour: number;
+    dictation_count: number;
+    total_words: number;
+  }
+
   interface DailyEngineMetrics {
     date_local: string;
     engine_id: string;
     dictation_count: number;
     total_words: number;
     total_duration_ms: number;
+  }
+
+  interface EngineLatencyStats {
+    engine_id: string;
+    sample_count: number;
+    avg_processing_ms: number;
+    avg_network_ms: number;
+    avg_transcription_ms: number;
+    avg_insertion_ms: number;
+    avg_total_ms: number;
+    p50_total_ms: number;
+    p95_total_ms: number;
+    avg_audio_duration_ms: number;
+    avg_word_count: number;
   }
 
   interface AggregatedEngine {
@@ -46,6 +66,7 @@
 
   let today: DailyMetrics | null = $state(null);
   let weekDays: DailyMetrics[] = $state([]);
+  let hourlyData: HourlyActivity[] = $state([]);
   let lifetime: LifetimeMetrics = $state({
     total_words: 0,
     total_dictations: 0,
@@ -56,6 +77,7 @@
     typing_baseline_wpm: null,
   });
   let engineBreakdown: AggregatedEngine[] = $state([]);
+  let latencyStats: EngineLatencyStats[] = $state([]);
   let baselineInput = $state("");
   let editingBaseline = $state(false);
 
@@ -214,6 +236,13 @@
     return d.toLocaleDateString(undefined, { weekday: "short" });
   }
 
+  function formatHour(h: number): string {
+    if (h === 0) return "12a";
+    if (h < 12) return `${h}a`;
+    if (h === 12) return "12p";
+    return `${h - 12}p`;
+  }
+
   function progressPercent(current: number, target: number): number {
     return Math.min(100, Math.round((current / target) * 100));
   }
@@ -228,6 +257,15 @@
         from,
         to,
       });
+      // Hourly usage patterns (all-time)
+      const rawHourly = await invoke<HourlyActivity[]>(
+        "get_hourly_activity",
+        { from: "2000-01-01", to: "2099-12-31" },
+      );
+      // Fill all 24 hours, merging with data
+      const hourMap = new Map(rawHourly.map((h) => [h.hour, h]));
+      hourlyData = Array.from({ length: 24 }, (_, i) => hourMap.get(i) ?? { hour: i, dictation_count: 0, total_words: 0 });
+
       const rawEngines = await invoke<DailyEngineMetrics[]>(
         "get_engine_breakdown",
         { from: "2000-01-01", to: "2099-12-31" },
@@ -248,6 +286,9 @@
         }
       }
       engineBreakdown = Object.values(engineAcc);
+
+      // Latency profiling stats per engine
+      latencyStats = await invoke<EngineLatencyStats[]>("get_latency_stats");
     } catch (e) {
       console.error("Failed to load metrics:", e);
     }
@@ -332,6 +373,40 @@
       </p>
     {:else}
       <p class="text-sm text-text-muted">{t("dashboard.no_data_week")}</p>
+    {/if}
+  </section>
+
+  <!-- Hourly Usage Patterns -->
+  <section class="mb-6 rounded-lg bg-bg-secondary p-4" aria-label={t("dashboard.usage_patterns")}>
+    <h3 class="mb-3 text-sm font-medium text-text-secondary">{t("dashboard.usage_patterns")}</h3>
+    {#if hourlyData.reduce((s, h) => s + h.dictation_count, 0) > 0}
+      {@const totalHourlyCount = hourlyData.reduce((s, h) => s + h.dictation_count, 0)}
+      {@const maxCount = Math.max(...hourlyData.map((h) => h.dictation_count), 1)}
+      <div class="flex items-end gap-px" role="img" aria-label={t("dashboard.hourly_chart_alt", {
+        total: totalHourlyCount.toString()
+      })}>
+        {#each hourlyData as bucket (bucket.hour)}
+          {@const height = Math.max(2, (bucket.dictation_count / maxCount) * 64)}
+          {@const opacity = bucket.dictation_count > 0 ? 0.4 + (bucket.dictation_count / maxCount) * 0.6 : 0.15}
+          <div class="flex flex-1 flex-col items-center gap-0.5" title="{bucket.dictation_count} dictations, {bucket.total_words} words">
+            <div
+              class="w-full rounded-sm bg-accent"
+              style="height: {height}px; opacity: {opacity}"
+            ></div>
+            {#if bucket.hour % 3 === 0}
+              <span class="text-[9px] text-text-muted">{formatHour(bucket.hour)}</span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+      <p class="mt-2 text-xs text-text-muted">
+        {t("dashboard.hourly_total", {
+          count: totalHourlyCount.toString(),
+          hours: hourlyData.filter((h) => h.dictation_count > 0).length.toString()
+        })}
+      </p>
+    {:else}
+      <p class="text-sm text-text-muted">{t("dashboard.no_hourly_data")}</p>
     {/if}
   </section>
 
@@ -440,6 +515,60 @@
               <div class="h-3 rounded-full bg-accent" style="width: {pct}%"></div>
             </div>
             <span class="text-xs text-text-muted w-12 text-right">{pct}%</span>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  <!-- Latency Profiling -->
+  {#if latencyStats.length > 0}
+    <section class="mb-6 rounded-lg bg-bg-secondary p-4" aria-label="Latency Profiling">
+      <h3 class="mb-3 text-sm font-medium text-text-secondary">Latency Profiling</h3>
+      <div class="space-y-4">
+        {#each latencyStats as stat (stat.engine_id)}
+          {@const totalAvg = stat.avg_total_ms || 1}
+          {@const procPct = (stat.avg_processing_ms / totalAvg) * 100}
+          {@const transPct = (stat.avg_transcription_ms / totalAvg) * 100}
+          {@const insPct = (stat.avg_insertion_ms / totalAvg) * 100}
+          <div class="rounded border border-border bg-bg-surface p-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium">{stat.engine_id.charAt(0).toUpperCase() + stat.engine_id.slice(1)}</span>
+              <span class="text-xs text-text-muted">{stat.sample_count} samples</span>
+            </div>
+            <div class="flex h-4 w-full overflow-hidden rounded-full bg-bg-primary mb-2" title="Avg total: {Math.round(stat.avg_total_ms)}ms">
+              <div class="bg-status-processing" style="width: {procPct}%" title="Processing: {Math.round(stat.avg_processing_ms)}ms"></div>
+              <div class="bg-accent" style="width: {transPct}%" title="Transcription: {Math.round(stat.avg_transcription_ms)}ms"></div>
+              <div class="bg-status-success" style="width: {insPct}%" title="Insertion: {Math.round(stat.avg_insertion_ms)}ms"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-full bg-status-processing"></span>
+                <span class="text-text-muted">Process</span>
+                <span class="font-medium">{Math.round(stat.avg_processing_ms)}ms</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-full bg-accent"></span>
+                <span class="text-text-muted">Transcribe</span>
+                <span class="font-medium">{Math.round(stat.avg_transcription_ms)}ms</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-full bg-status-success"></span>
+                <span class="text-text-muted">Insert</span>
+                <span class="font-medium">{Math.round(stat.avg_insertion_ms)}ms</span>
+              </div>
+            </div>
+            <div class="mt-2 grid grid-cols-3 gap-2 text-xs text-text-muted">
+              <div>
+                <span class="text-text-secondary font-medium">{Math.round(stat.avg_total_ms)}ms</span> avg
+              </div>
+              <div>
+                <span class="text-text-secondary font-medium">{stat.p50_total_ms}ms</span> p50
+              </div>
+              <div>
+                <span class="text-text-secondary font-medium">{stat.p95_total_ms}ms</span> p95
+              </div>
+            </div>
           </div>
         {/each}
       </div>

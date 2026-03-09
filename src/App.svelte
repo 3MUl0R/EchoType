@@ -114,7 +114,7 @@
 {#if showWizard && wizardChecked}
   <SetupWizard onComplete={() => (showWizard = false)} />
 {:else if wizardChecked}
-<div class="min-h-screen bg-bg-primary text-text-primary">
+<div class="flex h-screen flex-col overflow-hidden bg-bg-primary text-text-primary">
   {#if !bannerDismissed}
     <SetupBanner
       onNavigate={(page) => { currentPage = page as Page; bannerDismissed = true; }}
@@ -207,7 +207,7 @@
   </nav>
 
   {#if currentPage === "dictation"}
-    <main>
+    <main class="flex-1 overflow-y-auto">
       <div class="mx-auto max-w-2xl px-6 py-8">
         <p class="mb-8 text-center text-text-secondary">{t("app.description")}</p>
 
@@ -226,19 +226,19 @@
       </div>
     </main>
   {:else if currentPage === "models"}
-    <main>
+    <main class="flex-1 overflow-y-auto">
       <ModelManager />
     </main>
   {:else if currentPage === "history"}
-    <main>
+    <main class="flex-1 overflow-y-auto">
       <History />
     </main>
   {:else if currentPage === "dashboard"}
-    <main>
+    <main class="flex-1 overflow-y-auto">
       <Dashboard />
     </main>
   {:else if currentPage === "settings"}
-    <main>
+    <main class="flex-1 overflow-hidden">
       <Settings onRunWizard={() => { invoke("set_setting", { key: "wizard_completed", value: "false" }); showWizard = true; }} />
     </main>
   {/if}

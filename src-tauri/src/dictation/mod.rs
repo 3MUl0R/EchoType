@@ -39,6 +39,17 @@ pub struct DictationEvent {
     pub latency_ms: Option<u64>,
 }
 
+/// Timing breakdown for a single dictation event.
+#[derive(Debug, Clone, Default)]
+pub struct LatencyBreakdown {
+    /// Time for audio pipeline (denoise + resample).
+    pub processing_ms: u64,
+    /// Time for the transcription engine (includes network for cloud).
+    pub transcription_ms: u64,
+    /// Network portion (cloud only, estimated).
+    pub network_ms: u64,
+}
+
 /// State stored when the edit buffer window is open.
 pub struct PendingEdit {
     pub text: String,
@@ -50,6 +61,7 @@ pub struct PendingEdit {
     pub auto_submit_delay_ms: u64,
     pub audio: AudioBuffer,
     pub release_time: Instant,
+    pub latency_breakdown: LatencyBreakdown,
 }
 
 /// Manages the dictation lifecycle.
@@ -412,7 +424,10 @@ impl DictationManager {
                 run_transcription_pipeline(buffer, &engine_manager, suppression_level).await;
 
             match result {
-                Ok(raw_text) => {
+                Ok(pipeline_result) => {
+                    let latency_breakdown = pipeline_result.latency;
+                    let raw_text = pipeline_result.text;
+
                     // Apply vocabulary corrections before postprocessing
                     let corrected = if let Some(vid) = vocab_id {
                         let conn = db.lock().await;
@@ -440,6 +455,7 @@ impl DictationManager {
                             auto_submit_delay_ms,
                             audio: audio_for_history,
                             release_time,
+                            latency_breakdown: latency_breakdown.clone(),
                         });
 
                         *state_ref.lock().await = DictationState::Editing;
@@ -486,6 +502,7 @@ impl DictationManager {
                         auto_submit_delay_ms,
                         &audio_for_history,
                         release_time,
+                        &latency_breakdown,
                     )
                     .await;
                 }
@@ -522,6 +539,7 @@ async fn do_insert(
     auto_submit_delay_ms: u64,
     audio: &AudioBuffer,
     release_time: Instant,
+    latency_breakdown: &LatencyBreakdown,
 ) {
     // Transition to inserting
     *state_ref.lock().await = DictationState::Inserting;
@@ -549,12 +567,14 @@ async fn do_insert(
     }
 
     // Insert text (blocking: uses thread::sleep + enigo)
+    let insert_start = Instant::now();
     let text_owned = text.to_string();
     let method = output_method.clone();
     let insert_result =
         tokio::task::spawn_blocking(move || output::insert_text(&text_owned, &method))
             .await
             .unwrap_or_else(|e| Err(format!("Insert task panicked: {e}")));
+    let insertion_ms = insert_start.elapsed().as_millis() as u64;
 
     if let Err(e) = insert_result {
         error!(%e, "Text insertion failed");
@@ -589,8 +609,8 @@ async fn do_insert(
     let total_latency = release_time.elapsed().as_millis() as u64;
     info!(total_latency_ms = total_latency, "Text inserted");
 
-    // Save to history
-    save_to_history(db, app, text, audio, total_latency).await;
+    // Save to history and latency metrics
+    save_to_history(db, app, text, audio, total_latency, latency_breakdown, insertion_ms).await;
 
     *state_ref.lock().await = DictationState::Idle;
     emit_state(
@@ -685,6 +705,7 @@ pub async fn complete_edit_insert(app: &AppHandle, edited_text: String) {
         pending.auto_submit_delay_ms,
         &pending.audio,
         pending.release_time,
+        &pending.latency_breakdown,
     )
     .await;
 }
@@ -713,13 +734,20 @@ pub async fn complete_edit_discard(app: &AppHandle) {
     info!("Edit buffer discarded");
 }
 
+/// Result of a transcription pipeline run, including timing.
+struct PipelineResult {
+    text: String,
+    latency: LatencyBreakdown,
+}
+
 /// Run the audio pipeline and transcription.
 async fn run_transcription_pipeline(
     buffer: crate::audio::AudioBuffer,
     engine_manager: &crate::engine::manager::EngineManager,
     suppression_level: SuppressionLevel,
-) -> Result<String, String> {
+) -> Result<PipelineResult, String> {
     // Pipeline: denoise + resample (blocking work)
+    let pipeline_start = Instant::now();
     let processed = tokio::task::spawn_blocking(move || {
         let config = pipeline::PipelineConfig { suppression_level };
         pipeline::process(&buffer, &config)
@@ -727,6 +755,7 @@ async fn run_transcription_pipeline(
     .await
     .map_err(|e| format!("Pipeline task failed: {e}"))?
     .map_err(|e| format!("Audio pipeline error: {e}"))?;
+    let processing_ms = pipeline_start.elapsed().as_millis() as u64;
 
     // Transcribe
     let request = TranscribeRequest {
@@ -735,12 +764,27 @@ async fn run_transcription_pipeline(
         language: None,
     };
 
+    let transcribe_start = Instant::now();
     let transcription = engine_manager
         .transcribe(request)
         .await
         .map_err(|e| e.to_string())?;
+    let transcription_ms = transcribe_start.elapsed().as_millis() as u64;
 
-    Ok(transcription.text)
+    info!(
+        processing_ms,
+        transcription_ms,
+        "Pipeline timing breakdown"
+    );
+
+    Ok(PipelineResult {
+        text: transcription.text,
+        latency: LatencyBreakdown {
+            processing_ms,
+            transcription_ms,
+            network_ms: 0, // Will be refined later if cloud
+        },
+    })
 }
 
 /// Save a completed dictation to history.
@@ -749,7 +793,9 @@ async fn save_to_history(
     app: &AppHandle,
     text: &str,
     audio: &AudioBuffer,
-    _latency_ms: u64,
+    total_latency_ms: u64,
+    latency_breakdown: &LatencyBreakdown,
+    insertion_ms: u64,
 ) {
     // Read settings (async-safe)
     let (enabled, private_mode, engine_id, max_count) = {
@@ -786,6 +832,14 @@ async fn save_to_history(
     } else {
         None
     };
+
+    info!(
+        history_enabled = enabled,
+        private_mode,
+        engine = ?engine_id,
+        word_count = text.split_whitespace().count(),
+        "save_to_history: checking flags"
+    );
 
     if private_mode {
         info!("Private mode: skipping history save, audio storage, and metrics");
@@ -834,7 +888,7 @@ async fn save_to_history(
     let conn = db.lock().await;
     match crate::db::history::insert(&conn, &params) {
         Ok(id) => {
-            debug!(history_id = id, "Saved dictation to history");
+            info!(history_id = id, "Saved dictation to history");
 
             if let Ok(paths) = crate::db::history::enforce_retention_count(&conn, max_count) {
                 for rel_path in paths {
@@ -848,6 +902,23 @@ async fn save_to_history(
         Err(e) => {
             error!(%e, "Failed to save dictation to history");
         }
+    }
+
+    // Record latency profiling data
+    let engine_label = engine_id.as_deref().unwrap_or("unknown");
+    let latency_params = crate::db::latency::InsertParams {
+        created_at: &now,
+        engine_id: engine_label,
+        audio_duration_ms: duration_ms,
+        processing_ms: latency_breakdown.processing_ms as i64,
+        network_ms: latency_breakdown.network_ms as i64,
+        transcription_ms: latency_breakdown.transcription_ms as i64,
+        insertion_ms: insertion_ms as i64,
+        total_ms: total_latency_ms as i64,
+        word_count: word_count as i64,
+    };
+    if let Err(e) = crate::db::latency::insert(&conn, &latency_params) {
+        warn!(%e, "Failed to save latency data");
     }
 }
 

@@ -20,6 +20,7 @@
   let loading = $state(false);
   let hasMore = $state(true);
   let offset = $state(0);
+  let totalCount = $state(0);
   const pageSize = 20;
 
   async function loadEntries(reset = false) {
@@ -31,10 +32,16 @@
 
     loading = true;
     try {
+      // Fetch total count for diagnostics
+      const count = await invoke<number>("get_history_count");
+      totalCount = count;
+      console.log("[History] total entries in DB:", count);
+
       const result = await invoke<HistoryItem[]>("get_history", {
         limit: pageSize,
         offset,
       });
+      console.log("[History] fetched", result.length, "entries, offset:", offset);
       if (reset) {
         entries = result;
       } else {
@@ -44,6 +51,7 @@
       offset += result.length;
       errorMessage = "";
     } catch (e) {
+      console.error("[History] load error:", e);
       errorMessage = String(e);
     } finally {
       loading = false;
@@ -118,6 +126,11 @@
 
   {#if entries.length === 0 && !loading}
     <p class="text-center text-text-secondary">{t("history.empty")}</p>
+    {#if totalCount === 0}
+      <p class="mt-2 text-center text-xs text-text-muted">
+        Dictation history will appear here after your first transcription.
+      </p>
+    {/if}
   {/if}
 
   {#if hasMore && entries.length > 0}

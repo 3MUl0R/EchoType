@@ -335,6 +335,48 @@ pub fn set_typing_baseline(conn: &Connection, wpm: f64) -> Result<(), String> {
     Ok(())
 }
 
+/// Hourly activity bucket (0–23).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HourlyActivity {
+    pub hour: i32,
+    pub dictation_count: i64,
+    pub total_words: i64,
+}
+
+/// Get dictation counts grouped by hour of day for a date range.
+/// Queries the `dictation_history` table's `created_at` timestamps.
+pub fn get_hourly_activity(
+    conn: &Connection,
+    from: &str,
+    to: &str,
+) -> Result<Vec<HourlyActivity>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hour,
+                    COUNT(*) AS cnt,
+                    SUM(LENGTH(text) - LENGTH(REPLACE(text, ' ', '')) + 1) AS words
+             FROM dictation_history
+             WHERE DATE(created_at) >= ?1 AND DATE(created_at) <= ?2
+             GROUP BY hour
+             ORDER BY hour ASC",
+        )
+        .map_err(|e| format!("Failed to prepare hourly query: {e}"))?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![from, to], |row| {
+            Ok(HourlyActivity {
+                hour: row.get(0)?,
+                dictation_count: row.get(1)?,
+                total_words: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            })
+        })
+        .map_err(|e| format!("Failed to query hourly activity: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

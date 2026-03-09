@@ -2,7 +2,7 @@ use rusqlite::Connection;
 use tracing::info;
 
 /// Current schema version.
-const CURRENT_VERSION: u32 = 3;
+const CURRENT_VERSION: u32 = 4;
 
 /// Run all pending migrations.
 pub fn run(conn: &Connection) -> Result<(), String> {
@@ -28,6 +28,9 @@ pub fn run(conn: &Connection) -> Result<(), String> {
     }
     if version < 3 {
         migrate_v3(conn)?;
+    }
+    if version < 4 {
+        migrate_v4(conn)?;
     }
 
     conn.pragma_update(None, "user_version", CURRENT_VERSION)
@@ -155,6 +158,35 @@ fn migrate_v3(conn: &Connection) -> Result<(), String> {
     .map_err(|e| format!("Migration v3 failed: {e}"))?;
 
     info!("Applied migration v3");
+    Ok(())
+}
+
+/// V4: Latency profiling — per-dictation timing breakdown by engine/provider.
+fn migrate_v4(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS latency_log (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at         TEXT NOT NULL,
+            engine_id          TEXT NOT NULL,
+            audio_duration_ms  INTEGER NOT NULL DEFAULT 0,
+            processing_ms      INTEGER NOT NULL DEFAULT 0,
+            network_ms         INTEGER NOT NULL DEFAULT 0,
+            transcription_ms   INTEGER NOT NULL DEFAULT 0,
+            insertion_ms       INTEGER NOT NULL DEFAULT 0,
+            total_ms           INTEGER NOT NULL DEFAULT 0,
+            word_count         INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_latency_engine
+            ON latency_log(engine_id);
+        CREATE INDEX IF NOT EXISTS idx_latency_created
+            ON latency_log(created_at);
+        ",
+    )
+    .map_err(|e| format!("Migration v4 failed: {e}"))?;
+
+    info!("Applied migration v4");
     Ok(())
 }
 
