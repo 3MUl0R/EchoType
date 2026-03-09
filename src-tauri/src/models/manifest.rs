@@ -8,7 +8,7 @@ const SUPPORTED_VERSION: u32 = 1;
 const BUNDLED_MANIFEST: &str = include_str!("../../../models/manifest.json");
 
 /// Allowlisted hosts for model download URLs.
-const ALLOWED_HOSTS: &[&str] = &["huggingface.co"];
+const ALLOWED_HOSTS: &[&str] = &["huggingface.co", "hf.co"];
 
 /// The model catalog manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
