@@ -810,7 +810,18 @@ async fn save_to_history(
             let engine_type = crate::settings::get_typed::<String>(&conn, crate::settings::keys::ENGINE_TYPE)
                 .unwrap_or_else(|_| "local".to_string());
             if engine_type == "cloud" {
-                crate::settings::get_typed::<String>(&conn, crate::settings::keys::CLOUD_PROVIDER).ok()
+                // Build provider/model composite ID for cloud engines
+                let provider = crate::settings::get_typed::<String>(&conn, crate::settings::keys::CLOUD_PROVIDER)
+                    .unwrap_or_else(|_| "unknown".to_string());
+                let model_key = match provider.as_str() {
+                    "groq" => crate::settings::keys::GROQ_MODEL,
+                    "openai" => crate::settings::keys::OPENAI_MODEL,
+                    "deepgram" => crate::settings::keys::DEEPGRAM_MODEL,
+                    _ => crate::settings::keys::OPENAI_MODEL,
+                };
+                let model = crate::settings::get_typed::<String>(&conn, model_key)
+                    .unwrap_or_else(|_| "unknown".to_string());
+                Some(format!("{provider}/{model}"))
             } else {
                 crate::settings::get_typed::<String>(&conn, crate::settings::keys::ACTIVE_MODEL_ID).ok()
             }

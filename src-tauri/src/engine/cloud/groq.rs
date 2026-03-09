@@ -16,24 +16,37 @@ pub struct GroqEngine {
     client: reqwest::Client,
     api_key: String,
     model: String,
+    /// Cached formatted name for the engine (e.g. "groq/whisper-large-v3").
+    display_name: String,
 }
 
 impl GroqEngine {
     pub fn new(api_key: String) -> Result<Self, EngineError> {
         let client = build_client(DEFAULT_TIMEOUT)
             .map_err(|e| EngineError::ModelLoadFailed(format!("HTTP client: {e}")))?;
+        let model = DEFAULT_MODEL.to_string();
+        let display_name = format!("groq/{model}");
         Ok(Self {
             client,
             api_key,
-            model: DEFAULT_MODEL.to_string(),
+            model,
+            display_name,
         })
+    }
+
+    pub fn with_model(mut self, model: String) -> Self {
+        if !model.is_empty() {
+            self.model = model;
+        }
+        self.display_name = format!("groq/{}", self.model);
+        self
     }
 }
 
 #[async_trait]
 impl SttEngine for GroqEngine {
     fn name(&self) -> &str {
-        "Groq"
+        &self.display_name
     }
 
     async fn transcribe(&self, request: TranscribeRequest) -> Result<Transcription, EngineError> {

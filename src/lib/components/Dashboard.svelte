@@ -238,6 +238,14 @@
     return d.toLocaleDateString(undefined, { weekday: "short" });
   }
 
+  function formatEngineId(id: string): string {
+    if (id.includes("/")) {
+      const [provider, model] = id.split("/", 2);
+      return `${provider.charAt(0).toUpperCase() + provider.slice(1)} / ${model}`;
+    }
+    return id.charAt(0).toUpperCase() + id.slice(1);
+  }
+
   function formatHour(h: number): string {
     if (h === 0) return "12a";
     if (h < 12) return `${h}a`;
@@ -512,7 +520,7 @@
           {@const totalEngineWords = engineBreakdown.reduce((s, e) => s + e.total_words, 0) || 1}
           {@const pct = Math.round((eng.total_words / totalEngineWords) * 100)}
           <div class="flex items-center gap-2">
-            <span class="w-24 truncate text-xs">{eng.engine_id.charAt(0).toUpperCase() + eng.engine_id.slice(1)}</span>
+            <span class="w-24 truncate text-xs">{formatEngineId(eng.engine_id)}</span>
             <div class="flex-1 rounded-full bg-bg-surface h-3">
               <div class="h-3 rounded-full bg-accent" style="width: {pct}%"></div>
             </div>
@@ -535,7 +543,7 @@
           {@const insPct = (stat.avg_insertion_ms / totalAvg) * 100}
           <div class="rounded border border-border bg-bg-surface p-3">
             <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-medium">{stat.engine_id.charAt(0).toUpperCase() + stat.engine_id.slice(1)}</span>
+              <span class="text-sm font-medium">{formatEngineId(stat.engine_id)}</span>
               <span class="text-xs text-text-muted">{stat.sample_count} samples</span>
             </div>
             <div class="flex h-4 w-full overflow-hidden rounded-full bg-bg-primary mb-2" title="Avg total: {Math.round(stat.avg_total_ms)}ms">

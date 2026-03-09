@@ -46,6 +46,8 @@
     cloud_opt_in_confirmed: boolean;
     cloud_fallback_local: boolean;
     openai_model: string;
+    groq_model: string;
+    deepgram_model: string;
     typing_baseline_wpm: number | null;
     theme: string;
     wizard_completed: boolean;
@@ -70,12 +72,12 @@
 
   const sectionNav: { id: SettingsSection; labelKey: string }[] = [
     { id: "dictation", labelKey: "settings.section_dictation" },
+    { id: "cloud", labelKey: "settings.section_cloud" },
     { id: "engine", labelKey: "settings.section_engine" },
     { id: "microphone", labelKey: "settings.section_microphone" },
     { id: "feedback", labelKey: "settings.section_feedback" },
     { id: "theme", labelKey: "settings.theme" },
     { id: "history", labelKey: "settings.section_history" },
-    { id: "cloud", labelKey: "settings.section_cloud" },
     { id: "profiles", labelKey: "settings.section_profiles" },
     { id: "vocabulary", labelKey: "settings.section_vocabulary" },
     { id: "advanced", labelKey: "settings.section_advanced" },
@@ -125,6 +127,59 @@
   let cloudKeyEditing: string | null = $state(null);
   let cloudKeyTesting: string | null = $state(null);
   let cloudKeyValid: Record<string, boolean | null> = $state({});
+
+  /** Available models per cloud provider. */
+  const cloudModels: Record<string, { id: string; label: string }[]> = {
+    groq: [
+      { id: "whisper-large-v3", label: "Whisper Large V3" },
+      { id: "whisper-large-v3-turbo", label: "Whisper Large V3 Turbo" },
+      { id: "distil-whisper-large-v3-en", label: "Distil Whisper Large V3 (EN)" },
+    ],
+    openai: [
+      { id: "whisper-1", label: "Whisper 1" },
+      { id: "gpt-4o-transcribe", label: "GPT-4o Transcribe" },
+      { id: "gpt-4o-mini-transcribe", label: "GPT-4o Mini Transcribe" },
+    ],
+    deepgram: [
+      { id: "nova-2", label: "Nova 2" },
+      { id: "nova-3", label: "Nova 3" },
+      { id: "enhanced", label: "Enhanced" },
+      { id: "base", label: "Base" },
+    ],
+  };
+
+  /** Get the setting key name for a provider's model. */
+  function modelSettingKey(providerId: string): string {
+    return `${providerId}_model`;
+  }
+
+  /** Get the current model for a provider from settings. */
+  function currentModel(providerId: string): string {
+    if (!settings) return "";
+    const key = modelSettingKey(providerId) as keyof AllSettings;
+    return (settings[key] as string) ?? "";
+  }
+
+  /** Change cloud model and re-activate if this provider is active. */
+  async function changeCloudModel(providerId: string, model: string) {
+    if (!settings) return;
+    const key = modelSettingKey(providerId);
+    await saveSetting(key, model);
+    // Update local settings state
+    const sKey = key as keyof AllSettings;
+    (settings as unknown as Record<string, unknown>)[sKey] = model;
+    // If this provider is currently active, re-activate to apply the new model
+    if (settings.engine_type === "cloud" && settings.cloud_provider === providerId) {
+      engineSwitching = true;
+      try {
+        await invoke("activate_cloud_engine", { provider: providerId });
+      } catch (e) {
+        console.error("Failed to re-activate cloud engine:", e);
+      } finally {
+        engineSwitching = false;
+      }
+    }
+  }
 
   let showCloudOptIn = $state(false);
   let cloudOptInProvider: string | null = $state(null);
@@ -1052,12 +1107,28 @@
           </div>
         {/if}
 
-        {#if settings.engine_type === "cloud" && cloudProviders.filter((p) => p.has_key).length === 0}
-          <p class="text-xs text-status-recording">{t("cloud.no_keys_hint")}</p>
+        {#if cloudProviders.filter((p) => p.has_key).length === 0}
+          <p class="text-xs text-text-muted">
+            {t("settings.configure_cloud_hint")}
+            <button
+              class="ml-1 text-accent hover:text-accent-hover"
+              onclick={() => (activeSection = "cloud")}
+            >Cloud Providers</button>
+          </p>
         {/if}
 
         {#if engineSwitching}
           <p class="text-xs text-text-secondary">{t("cloud.activating")}</p>
+        {/if}
+
+        {#if settings.engine_type === "cloud" && settings.cloud_provider}
+          <div class="flex items-center justify-between">
+            <span class="text-sm">{t("settings.active_cloud_model")}</span>
+            <span class="text-sm text-text-secondary">
+              {cloudProviders.find((p) => p.id === settings?.cloud_provider)?.name ?? settings.cloud_provider}
+              / {currentModel(settings.cloud_provider)}
+            </span>
+          </div>
         {/if}
 
         <div class="flex items-center justify-between">
@@ -1391,6 +1462,26 @@
               <p class="mt-1 text-xs text-accent">{t("cloud.key_valid")}</p>
             {:else if cloudKeyValid[provider.id] === false}
               <p class="mt-1 text-xs text-status-recording">{t("cloud.key_invalid")}</p>
+            {/if}
+
+            {#if provider.has_key && cloudModels[provider.id]}
+              <div class="mt-2 flex items-center gap-2">
+                <label for="model-{provider.id}" class="text-xs text-text-secondary">Model:</label>
+                <select
+                  id="model-{provider.id}"
+                  class="rounded border border-border bg-bg-primary px-2 py-1 text-xs"
+                  value={currentModel(provider.id)}
+                  onchange={(e) => changeCloudModel(provider.id, (e.target as HTMLSelectElement).value)}
+                  disabled={engineSwitching}
+                >
+                  {#each cloudModels[provider.id] as model (model.id)}
+                    <option value={model.id}>{model.label}</option>
+                  {/each}
+                </select>
+                {#if settings?.engine_type === "cloud" && settings?.cloud_provider === provider.id}
+                  <span class="text-[10px] text-text-muted">(active)</span>
+                {/if}
+              </div>
             {/if}
 
             {#if cloudKeyEditing === provider.id}

@@ -243,31 +243,39 @@ pub fn run() {
                         };
                         if let Some(provider) = provider {
                             if let Ok(Some(key)) = security::keyring_store::get_api_key(provider) {
-                                let result: Result<Box<dyn SttEngine>, String> = match provider {
-                                    engine::cloud::CloudProvider::Groq => {
-                                        engine::cloud::groq::GroqEngine::new(key)
-                                            .map(|e| Box::new(e) as Box<dyn SttEngine>)
-                                            .map_err(|e| e.to_string())
-                                    }
-                                    engine::cloud::CloudProvider::OpenAi => {
-                                        let model = {
-                                            let conn = state.db.lock().await;
-                                            settings::get_typed::<String>(
+                                let result: Result<Box<dyn SttEngine>, String> = {
+                                    let conn = state.db.lock().await;
+                                    match provider {
+                                        engine::cloud::CloudProvider::Groq => {
+                                            let model = settings::get_typed::<String>(
+                                                &conn,
+                                                settings::keys::GROQ_MODEL,
+                                            )
+                                            .unwrap_or_else(|_| "whisper-large-v3".to_string());
+                                            engine::cloud::groq::GroqEngine::new(key)
+                                                .map(|e| Box::new(e.with_model(model)) as Box<dyn SttEngine>)
+                                                .map_err(|e| e.to_string())
+                                        }
+                                        engine::cloud::CloudProvider::OpenAi => {
+                                            let model = settings::get_typed::<String>(
                                                 &conn,
                                                 settings::keys::OPENAI_MODEL,
                                             )
-                                            .unwrap_or_else(|_| "whisper-1".to_string())
-                                        };
-                                        engine::cloud::openai::OpenAiEngine::new(key)
-                                            .map(|e| {
-                                                Box::new(e.with_model(model)) as Box<dyn SttEngine>
-                                            })
-                                            .map_err(|e| e.to_string())
-                                    }
-                                    engine::cloud::CloudProvider::Deepgram => {
-                                        engine::cloud::deepgram::DeepgramEngine::new(key)
-                                            .map(|e| Box::new(e) as Box<dyn SttEngine>)
-                                            .map_err(|e| e.to_string())
+                                            .unwrap_or_else(|_| "whisper-1".to_string());
+                                            engine::cloud::openai::OpenAiEngine::new(key)
+                                                .map(|e| Box::new(e.with_model(model)) as Box<dyn SttEngine>)
+                                                .map_err(|e| e.to_string())
+                                        }
+                                        engine::cloud::CloudProvider::Deepgram => {
+                                            let model = settings::get_typed::<String>(
+                                                &conn,
+                                                settings::keys::DEEPGRAM_MODEL,
+                                            )
+                                            .unwrap_or_else(|_| "nova-2".to_string());
+                                            engine::cloud::deepgram::DeepgramEngine::new(key)
+                                                .map(|e| Box::new(e.with_model(model)) as Box<dyn SttEngine>)
+                                                .map_err(|e| e.to_string())
+                                        }
                                     }
                                 };
                                 match result {

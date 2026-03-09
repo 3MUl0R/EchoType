@@ -846,24 +846,45 @@ pub async fn activate_cloud_engine(
     let api_key = keyring_store::get_api_key(provider)?
         .ok_or_else(|| format!("No API key configured for {provider}"))?;
 
-    let engine: Box<dyn SttEngine> = match provider {
-        crate::engine::cloud::CloudProvider::Groq => {
-            Box::new(GroqEngine::new(api_key).map_err(|e| e.to_string())?)
-        }
-        crate::engine::cloud::CloudProvider::OpenAi => {
-            let conn = state.db.lock().await;
-            let model =
-                crate::settings::get_typed::<String>(&conn, crate::settings::keys::OPENAI_MODEL)
-                    .unwrap_or_else(|_| "whisper-1".to_string());
-            drop(conn);
-            Box::new(
-                OpenAiEngine::new(api_key)
-                    .map_err(|e| e.to_string())?
-                    .with_model(model),
-            )
-        }
-        crate::engine::cloud::CloudProvider::Deepgram => {
-            Box::new(DeepgramEngine::new(api_key).map_err(|e| e.to_string())?)
+    let engine: Box<dyn SttEngine> = {
+        let conn = state.db.lock().await;
+        match provider {
+            crate::engine::cloud::CloudProvider::Groq => {
+                let model = crate::settings::get_typed::<String>(
+                    &conn,
+                    crate::settings::keys::GROQ_MODEL,
+                )
+                .unwrap_or_else(|_| "whisper-large-v3".to_string());
+                Box::new(
+                    GroqEngine::new(api_key)
+                        .map_err(|e| e.to_string())?
+                        .with_model(model),
+                )
+            }
+            crate::engine::cloud::CloudProvider::OpenAi => {
+                let model = crate::settings::get_typed::<String>(
+                    &conn,
+                    crate::settings::keys::OPENAI_MODEL,
+                )
+                .unwrap_or_else(|_| "whisper-1".to_string());
+                Box::new(
+                    OpenAiEngine::new(api_key)
+                        .map_err(|e| e.to_string())?
+                        .with_model(model),
+                )
+            }
+            crate::engine::cloud::CloudProvider::Deepgram => {
+                let model = crate::settings::get_typed::<String>(
+                    &conn,
+                    crate::settings::keys::DEEPGRAM_MODEL,
+                )
+                .unwrap_or_else(|_| "nova-2".to_string());
+                Box::new(
+                    DeepgramEngine::new(api_key)
+                        .map_err(|e| e.to_string())?
+                        .with_model(model),
+                )
+            }
         }
     };
 

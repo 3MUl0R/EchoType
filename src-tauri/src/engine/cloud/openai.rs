@@ -16,16 +16,21 @@ pub struct OpenAiEngine {
     client: reqwest::Client,
     api_key: String,
     model: String,
+    /// Cached formatted name for the engine (e.g. "openai/whisper-1").
+    display_name: String,
 }
 
 impl OpenAiEngine {
     pub fn new(api_key: String) -> Result<Self, EngineError> {
         let client = build_client(DEFAULT_TIMEOUT)
             .map_err(|e| EngineError::ModelLoadFailed(format!("HTTP client: {e}")))?;
+        let model = DEFAULT_MODEL.to_string();
+        let display_name = format!("openai/{model}");
         Ok(Self {
             client,
             api_key,
-            model: DEFAULT_MODEL.to_string(),
+            model,
+            display_name,
         })
     }
 
@@ -33,6 +38,7 @@ impl OpenAiEngine {
         if !model.is_empty() {
             self.model = model;
         }
+        self.display_name = format!("openai/{}", self.model);
         self
     }
 }
@@ -40,7 +46,7 @@ impl OpenAiEngine {
 #[async_trait]
 impl SttEngine for OpenAiEngine {
     fn name(&self) -> &str {
-        "OpenAI"
+        &self.display_name
     }
 
     async fn transcribe(&self, request: TranscribeRequest) -> Result<Transcription, EngineError> {

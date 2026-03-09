@@ -39,6 +39,8 @@ pub mod keys {
     pub const CLOUD_OPT_IN_CONFIRMED: &str = "cloud_opt_in_confirmed";
     pub const CLOUD_FALLBACK_LOCAL: &str = "cloud_fallback_local";
     pub const OPENAI_MODEL: &str = "openai_model";
+    pub const GROQ_MODEL: &str = "groq_model";
+    pub const DEEPGRAM_MODEL: &str = "deepgram_model";
     pub const TYPING_BASELINE_WPM: &str = "typing_baseline_wpm";
     pub const THEME: &str = "theme";
     pub const WIZARD_COMPLETED: &str = "wizard_completed";
@@ -81,6 +83,8 @@ pub struct AllSettings {
     pub cloud_opt_in_confirmed: bool,
     pub cloud_fallback_local: bool,
     pub openai_model: String,
+    pub groq_model: String,
+    pub deepgram_model: String,
     pub typing_baseline_wpm: Option<f64>,
     pub theme: String,
     pub wizard_completed: bool,
@@ -127,6 +131,8 @@ fn default_for(key: &str) -> Option<String> {
         keys::CLOUD_OPT_IN_CONFIRMED => "false",
         keys::CLOUD_FALLBACK_LOCAL => "true",
         keys::OPENAI_MODEL => "\"whisper-1\"",
+        keys::GROQ_MODEL => "\"whisper-large-v3\"",
+        keys::DEEPGRAM_MODEL => "\"nova-2\"",
         keys::TYPING_BASELINE_WPM => "null",
         keys::THEME => "\"dark\"",
         keys::WIZARD_COMPLETED => "false",
@@ -220,6 +226,8 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         cloud_opt_in_confirmed: get_typed(conn, keys::CLOUD_OPT_IN_CONFIRMED)?,
         cloud_fallback_local: get_typed(conn, keys::CLOUD_FALLBACK_LOCAL)?,
         openai_model: get_typed(conn, keys::OPENAI_MODEL)?,
+        groq_model: get_typed(conn, keys::GROQ_MODEL)?,
+        deepgram_model: get_typed(conn, keys::DEEPGRAM_MODEL)?,
         typing_baseline_wpm: get_typed(conn, keys::TYPING_BASELINE_WPM).ok().flatten(),
         theme: get_typed(conn, keys::THEME)?,
         wizard_completed: get_typed(conn, keys::WIZARD_COMPLETED)?,
@@ -319,6 +327,8 @@ mod tests {
             keys::CLOUD_OPT_IN_CONFIRMED,
             keys::CLOUD_FALLBACK_LOCAL,
             keys::OPENAI_MODEL,
+            keys::GROQ_MODEL,
+            keys::DEEPGRAM_MODEL,
             keys::TYPING_BASELINE_WPM,
             keys::THEME,
             keys::WIZARD_COMPLETED,
@@ -398,6 +408,8 @@ mod tests {
         assert!(!all.cloud_opt_in_confirmed);
         assert!(all.cloud_fallback_local);
         assert_eq!(all.openai_model, "whisper-1");
+        assert_eq!(all.groq_model, "whisper-large-v3");
+        assert_eq!(all.deepgram_model, "nova-2");
         assert!(all.typing_baseline_wpm.is_none());
         assert_eq!(all.theme, "dark");
         assert!(!all.wizard_completed);
