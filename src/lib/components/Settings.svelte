@@ -133,7 +133,6 @@
     groq: [
       { id: "whisper-large-v3", label: "Whisper Large V3" },
       { id: "whisper-large-v3-turbo", label: "Whisper Large V3 Turbo" },
-      { id: "distil-whisper-large-v3-en", label: "Distil Whisper Large V3 (EN)" },
     ],
     openai: [
       { id: "whisper-1", label: "Whisper 1" },
