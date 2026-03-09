@@ -1,5 +1,6 @@
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "vendor/"
+# Vendoring temporarily disabled - vendor directory is incomplete
+# [source.crates-io]
+# replace-with = "vendored-sources"
+#
+# [source.vendored-sources]
+# directory = "src-tauri/vendor/"

@@ -26,6 +26,9 @@
   let modelProgress = $state(0);
   let selectedModel = $state("ggml-base.en");
   let currentHotkey = $state("");
+  let wizardHotkeyRecording = $state(false);
+  let wizardHotkeyPending = $state("");
+  let wizardHotkeyError = $state("");
   let testRecording = $state(false);
   let testText = $state("");
   let permissions = $state({ accessibility: false, microphone: false });
@@ -121,6 +124,67 @@
   }
   function skip() {
     next();
+  }
+
+  /** Convert a keyboard event into a Tauri global-shortcut string. */
+  function keyEventToShortcut(e: KeyboardEvent): string | null {
+    if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return null;
+    const parts: string[] = [];
+    if (e.ctrlKey) parts.push("ctrl");
+    if (e.altKey) parts.push("alt");
+    if (e.shiftKey) parts.push("shift");
+    if (e.metaKey) parts.push("super");
+    if (parts.length === 0) return null;
+    const keyMap: Record<string, string> = {
+      " ": "space", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left",
+      ArrowRight: "right", Enter: "enter", Backspace: "backspace",
+      Delete: "delete", Escape: "escape", Tab: "tab", Home: "home",
+      End: "end", PageUp: "pageup", PageDown: "pagedown", Insert: "insert",
+    };
+    let key = keyMap[e.key] ?? e.key.toLowerCase();
+    if (/^f\d{1,2}$/i.test(e.key)) key = e.key.toUpperCase();
+    parts.push(key);
+    return parts.join("+");
+  }
+
+  function startWizardHotkeyRecording() {
+    wizardHotkeyRecording = true;
+    wizardHotkeyPending = "";
+    wizardHotkeyError = "";
+  }
+
+  function cancelWizardHotkeyRecording() {
+    wizardHotkeyRecording = false;
+    wizardHotkeyPending = "";
+    wizardHotkeyError = "";
+  }
+
+  function handleWizardHotkeyKeydown(e: KeyboardEvent) {
+    if (!wizardHotkeyRecording) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      cancelWizardHotkeyRecording();
+      return;
+    }
+    const shortcut = keyEventToShortcut(e);
+    if (shortcut) {
+      wizardHotkeyPending = shortcut;
+      saveWizardHotkey(shortcut);
+    }
+  }
+
+  async function saveWizardHotkey(shortcut: string) {
+    try {
+      await invoke("change_hotkey", { shortcut });
+      currentHotkey = shortcut;
+      wizardHotkeyRecording = false;
+      wizardHotkeyPending = "";
+      wizardHotkeyError = "";
+    } catch (e) {
+      wizardHotkeyError = String(e);
+      wizardHotkeyPending = "";
+    }
   }
 
   async function testMicrophone() {
@@ -433,12 +497,40 @@
       onNext={next}
     >
         <div class="flex flex-col items-center gap-4">
-          <div class="rounded-lg border border-border bg-bg-surface px-6 py-3">
-            <p class="text-center text-lg font-mono font-medium">{currentHotkey}</p>
-          </div>
-          <p class="text-xs text-text-muted">
-            {t("wizard.hotkey_change_later")}
-          </p>
+          {#if wizardHotkeyRecording}
+            <div
+              role="button"
+              tabindex="0"
+              class="rounded-lg border-2 border-accent bg-bg-surface px-6 py-3 animate-pulse cursor-pointer"
+              onkeydown={handleWizardHotkeyKeydown}
+            >
+              <p class="text-center text-lg font-mono font-medium">
+                {wizardHotkeyPending || t("hotkey.recording")}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="text-xs text-text-muted hover:text-text-primary"
+              onclick={cancelWizardHotkeyRecording}
+            >
+              {t("hotkey.cancel")}
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="rounded-lg border border-border bg-bg-surface px-6 py-3 hover:border-accent cursor-pointer transition-colors"
+              onclick={startWizardHotkeyRecording}
+              title={t("hotkey.click_to_change")}
+            >
+              <p class="text-center text-lg font-mono font-medium">{currentHotkey}</p>
+            </button>
+            <p class="text-xs text-text-muted">
+              {t("hotkey.click_to_change")}
+            </p>
+          {/if}
+          {#if wizardHotkeyError}
+            <p class="text-xs text-red-500">{wizardHotkeyError}</p>
+          {/if}
         </div>
     </WizardStep>
 

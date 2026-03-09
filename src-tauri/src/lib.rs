@@ -79,13 +79,15 @@ pub fn run() {
     let db_path = db_dir.join("echotype.db");
     let db_handle = db::open(&db_path).expect("Cannot open database");
 
-    // Restore active model from settings
-    let active_model_id = {
+    // Restore active model and saved hotkey from settings
+    let (active_model_id, saved_hotkey) = {
         let conn = db_handle.blocking_lock();
-        match db::settings::get(&conn, "active_model_id") {
+        let model_id = match db::settings::get(&conn, "active_model_id") {
             Ok(Some(v)) => serde_json::from_str::<String>(&v).ok(),
             _ => None,
-        }
+        };
+        let hotkey = settings::get_typed::<String>(&conn, settings::keys::HOTKEY).ok();
+        (model_id, hotkey)
     };
     if let Some(ref id) = active_model_id {
         info!(model_id = %id, "Restored active model from settings");
@@ -177,10 +179,13 @@ pub fn run() {
             commands::check_for_update,
             commands::get_build_info,
             commands::get_diagnostic_info,
+            commands::change_hotkey,
         ])
-        .setup(|app| {
-            // Register the dictation hotkey
-            if let Err(e) = hotkey::register_dictation_hotkey(app.handle()) {
+        .setup(move |app| {
+            // Register the dictation hotkey (using saved value or platform default)
+            if let Err(e) =
+                hotkey::register_dictation_hotkey(app.handle(), saved_hotkey.as_deref())
+            {
                 error!(%e, "Failed to register dictation hotkey at startup");
             }
 

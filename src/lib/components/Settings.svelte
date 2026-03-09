@@ -109,6 +109,16 @@
   let cloudKeyTesting: string | null = $state(null);
   let cloudKeyValid: Record<string, boolean | null> = $state({});
 
+  let showCloudOptIn = $state(false);
+  let cloudOptInProvider: string | null = $state(null);
+  let cloudOptInProviderName: string = $state("");
+  let engineSwitching = $state(false);
+
+  // Hotkey recording state
+  let hotkeyRecording = $state(false);
+  let hotkeyPending = $state("");
+  let hotkeyError = $state("");
+
   let errorMessage = $state("");
   let successMessage = $state("");
 
@@ -129,6 +139,104 @@
     } catch (e) {
       errorMessage = String(e);
     }
+  }
+
+  /** Convert a keyboard event into a Tauri global-shortcut string. */
+  function keyEventToShortcut(e: KeyboardEvent): string | null {
+    // Ignore bare modifier presses
+    if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return null;
+
+    const parts: string[] = [];
+    if (e.ctrlKey) parts.push("ctrl");
+    if (e.altKey) parts.push("alt");
+    if (e.shiftKey) parts.push("shift");
+    if (e.metaKey) parts.push("super");
+
+    // Must have at least one modifier
+    if (parts.length === 0) return null;
+
+    // Map special key names to Tauri format
+    const keyMap: Record<string, string> = {
+      " ": "space",
+      ArrowUp: "up",
+      ArrowDown: "down",
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      Enter: "enter",
+      Backspace: "backspace",
+      Delete: "delete",
+      Escape: "escape",
+      Tab: "tab",
+      Home: "home",
+      End: "end",
+      PageUp: "pageup",
+      PageDown: "pagedown",
+      Insert: "insert",
+    };
+
+    let key = keyMap[e.key] ?? e.key.toLowerCase();
+    // Function keys: F1..F24
+    if (/^f\d{1,2}$/i.test(e.key)) {
+      key = e.key.toUpperCase();
+    }
+
+    parts.push(key);
+    return parts.join("+");
+  }
+
+  function startHotkeyRecording() {
+    hotkeyRecording = true;
+    hotkeyPending = "";
+    hotkeyError = "";
+  }
+
+  function cancelHotkeyRecording() {
+    hotkeyRecording = false;
+    hotkeyPending = "";
+    hotkeyError = "";
+  }
+
+  function handleHotkeyKeydown(e: KeyboardEvent) {
+    if (!hotkeyRecording) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Escape cancels recording
+    if (e.key === "Escape") {
+      cancelHotkeyRecording();
+      return;
+    }
+
+    const shortcut = keyEventToShortcut(e);
+    if (shortcut) {
+      hotkeyPending = shortcut;
+      saveHotkey(shortcut);
+    }
+  }
+
+  async function saveHotkey(shortcut: string) {
+    try {
+      await invoke("change_hotkey", { shortcut });
+      if (settings) {
+        settings.hotkey = shortcut;
+      }
+      hotkeyRecording = false;
+      hotkeyPending = "";
+      hotkeyError = "";
+      successMessage = t("hotkey.changed");
+      setTimeout(() => (successMessage = ""), 2000);
+    } catch (e) {
+      hotkeyError = String(e);
+      hotkeyPending = "";
+    }
+  }
+
+  async function resetHotkey() {
+    const defaultHotkey =
+      navigator.platform.toLowerCase().includes("mac")
+        ? "cmd+shift+space"
+        : "ctrl+shift+space";
+    await saveHotkey(defaultHotkey);
   }
 
   async function handleExport() {
@@ -468,6 +576,72 @@
     }
   }
 
+  function requestActivateCloud(providerId: string) {
+    const provider = cloudProviders.find((p) => p.id === providerId);
+    if (!provider) return;
+    if (settings?.cloud_opt_in_confirmed) {
+      doActivateCloud(providerId);
+    } else {
+      cloudOptInProvider = providerId;
+      cloudOptInProviderName = provider.name;
+      showCloudOptIn = true;
+    }
+  }
+
+  async function confirmCloudOptIn() {
+    if (!cloudOptInProvider) return;
+    try {
+      await saveSetting("cloud_opt_in_confirmed", true);
+      if (settings) settings.cloud_opt_in_confirmed = true;
+      showCloudOptIn = false;
+      doActivateCloud(cloudOptInProvider);
+      cloudOptInProvider = null;
+      cloudOptInProviderName = "";
+    } catch (e) {
+      errorMessage = String(e);
+    }
+  }
+
+  function cancelCloudOptIn() {
+    showCloudOptIn = false;
+    cloudOptInProvider = null;
+    cloudOptInProviderName = "";
+  }
+
+  async function doActivateCloud(providerId: string) {
+    engineSwitching = true;
+    try {
+      await invoke("activate_cloud_engine", { provider: providerId });
+      if (settings) {
+        settings.engine_type = "cloud";
+        settings.cloud_provider = providerId;
+      }
+      successMessage = t("settings.saved");
+      setTimeout(() => (successMessage = ""), 2000);
+    } catch (e) {
+      errorMessage = String(e);
+    } finally {
+      engineSwitching = false;
+    }
+  }
+
+  async function switchToLocal() {
+    engineSwitching = true;
+    try {
+      await invoke("activate_local_engine");
+      if (settings) {
+        settings.engine_type = "local";
+        settings.cloud_provider = null;
+      }
+      successMessage = t("settings.saved");
+      setTimeout(() => (successMessage = ""), 2000);
+    } catch (e) {
+      errorMessage = String(e);
+    } finally {
+      engineSwitching = false;
+    }
+  }
+
   $effect(() => {
     loadSettings();
     loadAudioDevices();
@@ -527,14 +701,54 @@
           </select>
         </div>
 
-        <div class="flex items-center justify-between">
-          <label for="hotkey" class="text-sm">{t("settings.hotkey")}</label>
-          <span
-            id="hotkey"
-            class="rounded border border-border bg-bg-primary px-3 py-1 text-sm font-mono"
-          >
-            {settings.hotkey}
-          </span>
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <label for="hotkey" class="text-sm">{t("settings.hotkey")}</label>
+            {#if hotkeyRecording}
+              <div class="flex items-center gap-2">
+                <span
+                  id="hotkey"
+                  role="button"
+                  tabindex="0"
+                  class="rounded border-2 border-accent bg-bg-primary px-3 py-1 text-sm font-mono animate-pulse cursor-pointer"
+                  onkeydown={handleHotkeyKeydown}
+                >
+                  {hotkeyPending || t("hotkey.recording")}
+                </span>
+                <button
+                  type="button"
+                  class="text-xs text-text-muted hover:text-text-primary"
+                  onclick={cancelHotkeyRecording}
+                >
+                  {t("hotkey.cancel")}
+                </button>
+              </div>
+            {:else}
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="hotkey"
+                  class="rounded border border-border bg-bg-primary px-3 py-1 text-sm font-mono hover:border-accent cursor-pointer transition-colors"
+                  onclick={startHotkeyRecording}
+                  title={t("hotkey.click_to_change")}
+                >
+                  {settings.hotkey}
+                </button>
+                {#if settings.hotkey.toLowerCase() !== (navigator.platform.toLowerCase().includes("mac") ? "cmd+shift+space" : "ctrl+shift+space")}
+                  <button
+                    type="button"
+                    class="text-xs text-text-muted hover:text-text-primary"
+                    onclick={resetHotkey}
+                  >
+                    {t("hotkey.reset")}
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          </div>
+          {#if hotkeyError}
+            <p class="text-xs text-red-500">{hotkeyError}</p>
+          {/if}
         </div>
 
         <div class="flex items-center justify-between">
@@ -760,13 +974,55 @@
         <div class="flex items-center justify-between">
           <span class="text-sm">{t("cloud.engine_type")}</span>
           <div class="flex items-center gap-2">
-            <span class="text-sm text-text-secondary">
-              {settings.engine_type === "cloud"
-                ? `${t("cloud.engine_cloud")}${settings.cloud_provider ? ` (${settings.cloud_provider})` : ""}`
-                : t("cloud.engine_local")}
-            </span>
+            <button
+              class="rounded px-3 py-1 text-sm transition-colors {settings.engine_type === 'local' ? 'bg-accent text-white' : 'border border-border bg-bg-primary text-text-secondary hover:bg-bg-secondary'}"
+              disabled={engineSwitching || settings.engine_type === "local"}
+              onclick={() => switchToLocal()}
+            >
+              {t("cloud.engine_local")}
+            </button>
+            <button
+              class="rounded px-3 py-1 text-sm transition-colors {settings.engine_type === 'cloud' ? 'bg-accent text-white' : 'border border-border bg-bg-primary text-text-secondary hover:bg-bg-secondary'}"
+              disabled={engineSwitching || settings.engine_type === "cloud"}
+              onclick={() => {
+                const available = cloudProviders.filter((p) => p.has_key);
+                if (available.length > 0) {
+                  requestActivateCloud(available[0].id);
+                }
+              }}
+              title={cloudProviders.filter((p) => p.has_key).length === 0 ? t("cloud.no_keys_hint") : ""}
+            >
+              {t("cloud.engine_cloud")}
+            </button>
           </div>
         </div>
+
+        {#if settings.engine_type === "cloud" && settings.cloud_provider}
+          <div class="flex items-center justify-between">
+            <span class="text-sm">{t("settings.cloud_provider")}</span>
+            <select
+              value={settings.cloud_provider}
+              onchange={(e) => {
+                const val = (e.target as HTMLSelectElement).value;
+                if (val) requestActivateCloud(val);
+              }}
+              disabled={engineSwitching}
+              class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+            >
+              {#each cloudProviders.filter((p) => p.has_key) as provider (provider.id)}
+                <option value={provider.id}>{provider.name}</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+
+        {#if settings.engine_type === "cloud" && cloudProviders.filter((p) => p.has_key).length === 0}
+          <p class="text-xs text-status-recording">{t("cloud.no_keys_hint")}</p>
+        {/if}
+
+        {#if engineSwitching}
+          <p class="text-xs text-text-secondary">{t("cloud.activating")}</p>
+        {/if}
 
         <div class="flex items-center justify-between">
           <span class="text-sm">{t("settings.active_model")}</span>
@@ -1030,10 +1286,13 @@
 
       <div class="space-y-3">
         {#each cloudProviders as provider (provider.id)}
-          <div class="rounded border border-border p-3">
+          <div class="rounded border {settings.engine_type === 'cloud' && settings.cloud_provider === provider.id ? 'border-accent' : 'border-border'} p-3">
             <div class="flex items-center justify-between">
               <div>
                 <span class="text-sm font-medium">{provider.name}</span>
+                {#if settings.engine_type === "cloud" && settings.cloud_provider === provider.id}
+                  <span class="ml-2 rounded-full bg-accent/20 px-2 py-0.5 text-xs text-accent">{t("cloud.active_badge")}</span>
+                {/if}
                 {#if provider.has_key}
                   <span class="ml-2 text-xs text-accent">{t("cloud.key_configured")}</span>
                   {#if provider.masked_last4}
@@ -1045,6 +1304,15 @@
               </div>
               <div class="flex gap-2">
                 {#if provider.has_key}
+                  {#if !(settings.engine_type === "cloud" && settings.cloud_provider === provider.id)}
+                    <button
+                      class="rounded bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/20"
+                      disabled={engineSwitching}
+                      onclick={() => requestActivateCloud(provider.id)}
+                    >
+                      {engineSwitching ? t("cloud.activating") : t("cloud.activate")}
+                    </button>
+                  {/if}
                   <button
                     class="rounded px-2 py-1 text-xs text-accent hover:bg-accent/10"
                     disabled={cloudKeyTesting === provider.id}
@@ -1560,3 +1828,36 @@
     </section>
   {/if}
 </div>
+
+<!-- Cloud Opt-In Confirmation Modal -->
+{#if showCloudOptIn}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="cloud-optin-title"
+  >
+    <div class="mx-4 max-w-md rounded-lg border border-border bg-bg-primary p-6 shadow-xl">
+      <h3 id="cloud-optin-title" class="mb-3 text-base font-semibold">
+        {t("cloud.opt_in_title")}
+      </h3>
+      <p class="mb-5 text-sm text-text-secondary">
+        {t("cloud.opt_in_body").replace("{provider}", cloudOptInProviderName)}
+      </p>
+      <div class="flex justify-end gap-3">
+        <button
+          class="rounded border border-border px-4 py-2 text-sm text-text-secondary hover:bg-bg-secondary"
+          onclick={cancelCloudOptIn}
+        >
+          {t("cloud.opt_in_cancel")}
+        </button>
+        <button
+          class="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/80"
+          onclick={confirmCloudOptIn}
+        >
+          {t("cloud.opt_in_confirm")}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

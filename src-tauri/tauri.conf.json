@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.echotype.app",
   "build": {
-    "beforeDevCommand": "npm run -- vite dev",
+    "beforeDevCommand": "npx vite dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run -- vite build",
+    "beforeBuildCommand": "npx vite build",
     "frontendDist": "../dist"
   },
   "app": {

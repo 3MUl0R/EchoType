@@ -326,5 +326,20 @@
   "model.small_desc": "Higher accuracy, slower",
 
   "settings.lang_english": "English",
-  "settings.lang_auto": "Auto-detect"
+  "settings.lang_auto": "Auto-detect",
+
+  "cloud.switch_to_cloud": "Switch to Cloud",
+  "cloud.switch_to_local": "Switch to Local",
+  "cloud.activate": "Use This Engine",
+  "cloud.active_badge": "Active",
+  "cloud.select_provider": "Select a cloud provider",
+  "cloud.no_keys_hint": "Add an API key to a cloud provider below to enable cloud transcription.",
+  "cloud.activating": "Activating...",
+
+  "hotkey.click_to_change": "Click to change",
+  "hotkey.recording": "Press a key combination...",
+  "hotkey.cancel": "Cancel",
+  "hotkey.reset": "Reset to Default",
+  "hotkey.invalid": "Invalid shortcut. Please try again.",
+  "hotkey.changed": "Hotkey updated successfully."
 }

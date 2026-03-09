@@ -72,16 +72,43 @@ fn platform_restore_focus(target: &FocusTarget) -> bool {
 
 #[cfg(target_os = "windows")]
 fn platform_capture_focus() -> Option<FocusTarget> {
-    // Windows: use GetForegroundWindow
-    // Simplified: store window title as identifier
-    warn!("Windows focus capture: using placeholder implementation");
-    None
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
+        warn!("GetForegroundWindow returned null");
+        return None;
+    }
+
+    // Store the HWND as a string so it can be used for restore
+    let hwnd_val = hwnd as usize;
+    debug!(hwnd = hwnd_val, "Captured foreground window");
+    Some(FocusTarget {
+        app_id: hwnd_val.to_string(),
+        id_type: AppIdentifierType::WindowHandle,
+    })
 }
 
 #[cfg(target_os = "windows")]
-fn platform_restore_focus(_target: &FocusTarget) -> bool {
-    warn!("Windows focus restore: using placeholder implementation");
-    false
+fn platform_restore_focus(target: &FocusTarget) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+
+    let hwnd: usize = match target.app_id.parse() {
+        Ok(h) => h,
+        Err(_) => {
+            warn!(app_id = %target.app_id, "Invalid HWND for focus restore");
+            return false;
+        }
+    };
+
+    let result = unsafe { SetForegroundWindow(hwnd as windows_sys::Win32::Foundation::HWND) };
+    if result == 0 {
+        warn!(hwnd = hwnd, "SetForegroundWindow failed");
+        false
+    } else {
+        debug!(hwnd = hwnd, "Restored foreground window");
+        true
+    }
 }
 
 // --- Linux implementation ---

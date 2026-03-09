@@ -86,6 +86,10 @@ impl DictationManager {
         // Capture the currently focused app before we do anything
         let focus_target = focus::capture_focus();
 
+        // Start suppressing hotkey key repeats so the letter key doesn't
+        // leak into the focused app while the user holds the hotkey combo.
+        crate::hotkey::start_key_suppression();
+
         // Start audio capture (blocking I/O, but short-lived)
         let app_state: tauri::State<'_, AppState> = app.state();
 
@@ -104,11 +108,10 @@ impl DictationManager {
             *app_state.active_profile_id.lock().await = None;
         }
 
-        // Detect selection in the target app (blocking, ~50-100ms)
-        let selection = tokio::task::spawn_blocking(output::selection::detect_selection)
-            .await
-            .unwrap_or(output::selection::SelectionState::Unknown);
-        *app_state.selection_state.lock().await = selection;
+        // Skip selection detection — the Ctrl+C simulation it uses causes
+        // side effects in terminals (SIGINT) and editors (triggers keybindings).
+        // TODO: revisit with a safer detection method (e.g. accessibility APIs).
+        *app_state.selection_state.lock().await = output::selection::SelectionState::NoSelection;
 
         // Read mic, feedback, and streaming settings together
         let (
@@ -222,6 +225,9 @@ impl DictationManager {
     /// Handle dictation stop (hotkey release).
     pub async fn on_stop(&self, app: &AppHandle) {
         let release_time = Instant::now();
+
+        // Stop suppressing hotkey key repeats now that the user released the keys.
+        crate::hotkey::stop_key_suppression();
 
         {
             let current = self.state.lock().await;

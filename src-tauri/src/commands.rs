@@ -346,6 +346,45 @@ pub async fn edit_buffer_copy(text: String) -> Result<(), String> {
     Ok(())
 }
 
+// --- Hotkey Commands ---
+
+#[tauri::command]
+pub async fn change_hotkey(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    shortcut: String,
+) -> Result<(), String> {
+    let shortcut = shortcut.trim().to_string();
+    if shortcut.is_empty() {
+        return Err("Shortcut cannot be empty".to_string());
+    }
+
+    // Unregister the old hotkey
+    crate::hotkey::unregister_dictation_hotkey(&app)?;
+
+    // Try to register the new one
+    if let Err(e) = crate::hotkey::register_dictation_hotkey(&app, Some(&shortcut)) {
+        // Registration failed — try to restore the old hotkey
+        let old_hotkey = {
+            let conn = state.db.lock().await;
+            crate::settings::get_typed::<String>(&conn, crate::settings::keys::HOTKEY).ok()
+        };
+        let _ = crate::hotkey::register_dictation_hotkey(&app, old_hotkey.as_deref());
+        return Err(format!("Invalid shortcut: {e}"));
+    }
+
+    // Persist the new hotkey
+    {
+        let conn = state.db.lock().await;
+        let json = serde_json::to_string(&shortcut)
+            .map_err(|e| format!("Failed to serialize hotkey: {e}"))?;
+        crate::settings::set(&conn, crate::settings::keys::HOTKEY, &json)?;
+    }
+
+    info!(shortcut = %shortcut, "Hotkey changed");
+    Ok(())
+}
+
 // --- Settings Commands ---
 
 #[tauri::command]

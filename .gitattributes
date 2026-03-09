@@ -1,0 +1,2 @@
+# Keep vendored Rust crates with LF endings to preserve cargo checksums
+src-tauri/vendor/** text=auto eol=lf

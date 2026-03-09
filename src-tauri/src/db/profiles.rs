@@ -8,6 +8,7 @@ pub enum AppIdentifierType {
     BundleId,
     ExePath,
     WmClass,
+    WindowHandle,
 }
 
 impl AppIdentifierType {
@@ -16,6 +17,7 @@ impl AppIdentifierType {
             Self::BundleId => "bundle_id",
             Self::ExePath => "exe_path",
             Self::WmClass => "wm_class",
+            Self::WindowHandle => "window_handle",
         }
     }
 
@@ -24,6 +26,7 @@ impl AppIdentifierType {
             "bundle_id" => Self::BundleId,
             "exe_path" => Self::ExePath,
             "wm_class" => Self::WmClass,
+            "window_handle" => Self::WindowHandle,
             _ => Self::BundleId,
         }
     }
