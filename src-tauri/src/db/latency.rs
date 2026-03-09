@@ -70,11 +70,17 @@ pub struct EngineLatencyStats {
     pub p95_total_ms: i64,
     pub avg_audio_duration_ms: f64,
     pub avg_word_count: f64,
+    /// Processing time normalized: ms per second of audio (averaged per-sample).
+    pub processing_per_sec: f64,
+    /// Transcription time normalized: ms per second of audio (averaged per-sample).
+    pub transcription_per_sec: f64,
 }
 
 /// Get aggregated latency stats grouped by engine.
 pub fn get_engine_stats(conn: &Connection) -> Result<Vec<EngineLatencyStats>, String> {
-    // First get the list of engines and their aggregate stats
+    // First get the list of engines and their aggregate stats.
+    // Normalized rates (per second of audio) are computed per-sample then averaged,
+    // which is more accurate than dividing aggregate averages.
     let mut stmt = conn
         .prepare(
             "SELECT engine_id,
@@ -85,14 +91,20 @@ pub fn get_engine_stats(conn: &Connection) -> Result<Vec<EngineLatencyStats>, St
                     AVG(insertion_ms) AS avg_ins,
                     AVG(total_ms) AS avg_total,
                     AVG(audio_duration_ms) AS avg_audio,
-                    AVG(word_count) AS avg_words
+                    AVG(word_count) AS avg_words,
+                    AVG(CASE WHEN audio_duration_ms > 0
+                         THEN processing_ms * 1000.0 / audio_duration_ms
+                         ELSE 0 END) AS proc_per_sec,
+                    AVG(CASE WHEN audio_duration_ms > 0
+                         THEN transcription_ms * 1000.0 / audio_duration_ms
+                         ELSE 0 END) AS trans_per_sec
              FROM latency_log
              GROUP BY engine_id
              ORDER BY cnt DESC",
         )
         .map_err(|e| format!("Failed to prepare latency stats query: {e}"))?;
 
-    let engines: Vec<(String, i64, f64, f64, f64, f64, f64, f64, f64)> = stmt
+    let engines: Vec<(String, i64, f64, f64, f64, f64, f64, f64, f64, f64, f64)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -104,6 +116,8 @@ pub fn get_engine_stats(conn: &Connection) -> Result<Vec<EngineLatencyStats>, St
                 row.get::<_, f64>(6)?,
                 row.get::<_, f64>(7)?,
                 row.get::<_, f64>(8)?,
+                row.get::<_, f64>(9)?,
+                row.get::<_, f64>(10)?,
             ))
         })
         .map_err(|e| format!("Failed to query latency stats: {e}"))?
@@ -111,7 +125,7 @@ pub fn get_engine_stats(conn: &Connection) -> Result<Vec<EngineLatencyStats>, St
         .collect();
 
     let mut results = Vec::new();
-    for (engine_id, cnt, avg_proc, avg_net, avg_trans, avg_ins, avg_total, avg_audio, avg_words) in engines {
+    for (engine_id, cnt, avg_proc, avg_net, avg_trans, avg_ins, avg_total, avg_audio, avg_words, proc_per_sec, trans_per_sec) in engines {
         // Compute percentiles for this engine
         let p50 = get_percentile(conn, &engine_id, 50)?;
         let p95 = get_percentile(conn, &engine_id, 95)?;
@@ -128,6 +142,8 @@ pub fn get_engine_stats(conn: &Connection) -> Result<Vec<EngineLatencyStats>, St
             p95_total_ms: p95,
             avg_audio_duration_ms: avg_audio,
             avg_word_count: avg_words,
+            processing_per_sec: proc_per_sec,
+            transcription_per_sec: trans_per_sec,
         });
     }
 

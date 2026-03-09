@@ -38,6 +38,8 @@
     p95_total_ms: number;
     avg_audio_duration_ms: number;
     avg_word_count: number;
+    processing_per_sec: number;
+    transcription_per_sec: number;
   }
 
   interface AggregatedEngine {
@@ -545,12 +547,12 @@
               <div class="flex items-center gap-1">
                 <span class="inline-block h-2 w-2 rounded-full bg-status-processing"></span>
                 <span class="text-text-muted">Process</span>
-                <span class="font-medium">{Math.round(stat.avg_processing_ms)}ms</span>
+                <span class="font-medium">{Math.round(stat.processing_per_sec)}ms/s</span>
               </div>
               <div class="flex items-center gap-1">
                 <span class="inline-block h-2 w-2 rounded-full bg-accent"></span>
                 <span class="text-text-muted">Transcribe</span>
-                <span class="font-medium">{Math.round(stat.avg_transcription_ms)}ms</span>
+                <span class="font-medium">{Math.round(stat.transcription_per_sec)}ms/s</span>
               </div>
               <div class="flex items-center gap-1">
                 <span class="inline-block h-2 w-2 rounded-full bg-status-success"></span>
