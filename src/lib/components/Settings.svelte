@@ -38,7 +38,7 @@
     auto_submit_delay_ms: number;
     streaming_enabled: boolean;
     edit_buffer_enabled: boolean;
-    custom_vocabulary_id: number | null;
+    custom_words: string[];
     private_mode_enabled: boolean;
     mute_system_audio: boolean;
     engine_type: string;
@@ -92,28 +92,8 @@
   let showAddProfile = $state(false);
   let profileForm = $state({ name: "", app_identifier: "", app_identifier_type: "bundle_id" });
 
-  interface VocabCollection {
-    id: number;
-    name: string;
-    created_at: string;
-  }
-
-  interface VocabEntry {
-    id: number;
-    collection_id: number;
-    correction: string;
-    aliases: string[];
-  }
-
-  let vocabCollections: VocabCollection[] = $state([]);
-  let vocabEntryCounts: Record<number, number> = $state({});
-  let showAddCollection = $state(false);
-  let newCollectionName = $state("");
-  let managingCollectionId: number | null = $state(null);
-  let vocabEntries: VocabEntry[] = $state([]);
-  let showAddEntry = $state(false);
-  let entryForm = $state({ correction: "", aliases: "" });
-  let editingEntryId: number | null = $state(null);
+  let customWords: string[] = $state([]);
+  let newCustomWord = $state("");
 
   interface CloudProviderInfo {
     id: string;
@@ -431,165 +411,30 @@
     profileForm = { name: "", app_identifier: "", app_identifier_type: "bundle_id" };
   }
 
-  async function loadVocabCollections() {
+  async function loadCustomWords() {
     try {
-      vocabCollections = await invoke<VocabCollection[]>("list_vocabulary_collections");
-      const counts: Record<number, number> = {};
-      for (const c of vocabCollections) {
-        counts[c.id] = await invoke<number>("vocabulary_entry_count", { collectionId: c.id });
-      }
-      vocabEntryCounts = counts;
+      customWords = await invoke<string[]>("get_custom_words");
     } catch {
-      vocabCollections = [];
+      customWords = [];
     }
   }
 
-  async function handleAddCollection() {
-    if (!newCollectionName.trim()) return;
+  async function handleAddCustomWord() {
+    if (!newCustomWord.trim()) return;
     try {
-      await invoke("create_vocabulary_collection", { name: newCollectionName.trim() });
-      newCollectionName = "";
-      showAddCollection = false;
-      await loadVocabCollections();
+      customWords = await invoke<string[]>("add_custom_word", { word: newCustomWord.trim() });
+      newCustomWord = "";
     } catch (e) {
       errorMessage = String(e);
     }
   }
 
-  async function handleDeleteCollection(id: number) {
+  async function handleRemoveCustomWord(word: string) {
     try {
-      await invoke("delete_vocabulary_collection", { id });
-      if (settings?.custom_vocabulary_id === id) {
-        await saveSetting("custom_vocabulary_id", null);
-        if (settings) settings.custom_vocabulary_id = null;
-      }
-      await loadVocabCollections();
+      customWords = await invoke<string[]>("remove_custom_word", { word });
     } catch (e) {
       errorMessage = String(e);
     }
-  }
-
-  async function openCollectionManager(id: number) {
-    managingCollectionId = id;
-    try {
-      vocabEntries = await invoke<VocabEntry[]>("list_vocabulary_entries", { collectionId: id });
-    } catch (e) {
-      errorMessage = String(e);
-    }
-  }
-
-  function closeCollectionManager() {
-    managingCollectionId = null;
-    vocabEntries = [];
-    showAddEntry = false;
-    editingEntryId = null;
-    entryForm = { correction: "", aliases: "" };
-  }
-
-  async function handleAddEntry() {
-    if (!entryForm.correction.trim() || !entryForm.aliases.trim()) return;
-    const aliases = entryForm.aliases.split(",").map((a) => a.trim()).filter((a) => a);
-    try {
-      await invoke("add_vocabulary_entry", {
-        collectionId: managingCollectionId,
-        correction: entryForm.correction.trim(),
-        aliases,
-      });
-      entryForm = { correction: "", aliases: "" };
-      showAddEntry = false;
-      vocabEntries = await invoke<VocabEntry[]>("list_vocabulary_entries", {
-        collectionId: managingCollectionId,
-      });
-      await loadVocabCollections();
-    } catch (e) {
-      errorMessage = String(e);
-    }
-  }
-
-  async function handleUpdateEntry(id: number) {
-    const aliases = entryForm.aliases.split(",").map((a) => a.trim()).filter((a) => a);
-    try {
-      await invoke("update_vocabulary_entry", {
-        id,
-        correction: entryForm.correction.trim(),
-        aliases,
-      });
-      editingEntryId = null;
-      entryForm = { correction: "", aliases: "" };
-      vocabEntries = await invoke<VocabEntry[]>("list_vocabulary_entries", {
-        collectionId: managingCollectionId,
-      });
-    } catch (e) {
-      errorMessage = String(e);
-    }
-  }
-
-  async function handleDeleteEntry(id: number) {
-    try {
-      await invoke("delete_vocabulary_entry", { id });
-      vocabEntries = await invoke<VocabEntry[]>("list_vocabulary_entries", {
-        collectionId: managingCollectionId,
-      });
-      await loadVocabCollections();
-    } catch (e) {
-      errorMessage = String(e);
-    }
-  }
-
-  function startEditEntry(entry: VocabEntry) {
-    editingEntryId = entry.id;
-    entryForm = { correction: entry.correction, aliases: entry.aliases.join(", ") };
-    showAddEntry = false;
-  }
-
-  async function handleExportVocab() {
-    if (managingCollectionId === null) return;
-    try {
-      const entries = await invoke<VocabEntry[]>("list_vocabulary_entries", {
-        collectionId: managingCollectionId,
-      });
-      const data = entries.map((e) => ({ correction: e.correction, aliases: e.aliases }));
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "vocabulary.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      errorMessage = String(e);
-    }
-  }
-
-  async function handleImportVocab() {
-    if (managingCollectionId === null) return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json";
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text) as { correction: string; aliases: string[] }[];
-        for (const entry of data) {
-          await invoke("add_vocabulary_entry", {
-            collectionId: managingCollectionId,
-            correction: entry.correction,
-            aliases: entry.aliases,
-          });
-        }
-        vocabEntries = await invoke<VocabEntry[]>("list_vocabulary_entries", {
-          collectionId: managingCollectionId,
-        });
-        await loadVocabCollections();
-        successMessage = t("settings.saved");
-        setTimeout(() => (successMessage = ""), 2000);
-      } catch (e) {
-        errorMessage = String(e);
-      }
-    };
-    input.click();
   }
 
   async function loadCloudProviders() {
@@ -717,7 +562,7 @@
     loadSettings();
     loadAudioDevices();
     loadProfiles();
-    loadVocabCollections();
+    loadCustomWords();
     loadCloudProviders();
   });
 </script>
@@ -1661,220 +1506,53 @@
     {/if}
 
     {#if activeSection === "vocabulary"}
-    <!-- Vocabulary Section -->
+    <!-- Custom Words Section -->
     <section class="mb-8">
       <h3 class="mb-4 text-sm font-medium uppercase tracking-wide text-text-secondary">
         {t("settings.section_vocabulary")}
       </h3>
       <p class="mb-3 text-xs text-text-secondary">{t("vocabulary.description")}</p>
 
-      {#if managingCollectionId !== null}
-        {@const collection = vocabCollections.find((c) => c.id === managingCollectionId)}
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <button
-              onclick={closeCollectionManager}
-              class="text-sm text-accent hover:underline"
-            >
-              {t("vocabulary.back")}
-            </button>
-            <span class="text-sm font-medium">{collection?.name ?? ""}</span>
-            <div class="flex gap-1">
-              <button
-                onclick={handleImportVocab}
-                class="rounded border border-border bg-bg-primary px-2 py-1 text-xs hover:bg-bg-surface"
-              >
-                {t("vocabulary.import")}
-              </button>
-              <button
-                onclick={handleExportVocab}
-                class="rounded border border-border bg-bg-primary px-2 py-1 text-xs hover:bg-bg-surface"
-              >
-                {t("vocabulary.export")}
-              </button>
-            </div>
-          </div>
+      <div class="mb-4 flex gap-2">
+        <input
+          type="text"
+          bind:value={newCustomWord}
+          placeholder={t("vocabulary.add_placeholder")}
+          aria-label={t("vocabulary.add_placeholder")}
+          class="flex-1 rounded border border-border bg-bg-primary px-3 py-1.5 text-sm"
+          onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter") handleAddCustomWord(); }}
+        />
+        <button
+          onclick={handleAddCustomWord}
+          disabled={!newCustomWord.trim()}
+          class="rounded bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+        >
+          {t("vocabulary.add")}
+        </button>
+      </div>
 
-          <div class="space-y-1">
-            {#each vocabEntries as entry (entry.id)}
-              {#if editingEntryId === entry.id}
-                <div class="rounded border border-accent bg-bg-surface p-2 space-y-1">
-                  <input
-                    type="text"
-                    bind:value={entryForm.correction}
-                    placeholder={t("vocabulary.correction")}
-                    aria-label={t("vocabulary.correction")}
-                    class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
-                  />
-                  <input
-                    type="text"
-                    bind:value={entryForm.aliases}
-                    placeholder={t("vocabulary.aliases")}
-                    aria-label={t("vocabulary.aliases")}
-                    class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
-                  />
-                  <div class="flex gap-2">
-                    <button
-                      onclick={() => handleUpdateEntry(entry.id)}
-                      class="rounded bg-accent px-2 py-1 text-xs text-white hover:bg-accent/90"
-                    >
-                      {t("vocabulary.save")}
-                    </button>
-                    <button
-                      onclick={() => { editingEntryId = null; entryForm = { correction: "", aliases: "" }; }}
-                      class="rounded border border-border bg-bg-primary px-2 py-1 text-xs hover:bg-bg-surface"
-                    >
-                      {t("vocabulary.cancel")}
-                    </button>
-                  </div>
-                </div>
-              {:else}
-                <div class="flex items-center justify-between rounded border border-border bg-bg-surface px-3 py-2">
-                  <div class="min-w-0 flex-1">
-                    <span class="text-sm font-medium">{entry.correction}</span>
-                    <span class="ml-2 text-xs text-text-secondary">{entry.aliases.join(", ")}</span>
-                  </div>
-                  <div class="flex gap-1 ml-2">
-                    <button
-                      onclick={() => startEditEntry(entry)}
-                      class="rounded px-2 py-0.5 text-xs text-text-secondary hover:bg-bg-primary"
-                    >
-                      {t("profiles.edit")}
-                    </button>
-                    <button
-                      onclick={() => handleDeleteEntry(entry.id)}
-                      class="rounded px-2 py-0.5 text-xs text-status-recording hover:bg-bg-primary"
-                    >
-                      {t("vocabulary.delete")}
-                    </button>
-                  </div>
-                </div>
-              {/if}
-            {/each}
-          </div>
-
-          {#if showAddEntry}
-            <div class="rounded border border-accent bg-bg-surface p-2 space-y-1">
-              <input
-                type="text"
-                bind:value={entryForm.correction}
-                placeholder={t("vocabulary.correction")}
-                aria-label={t("vocabulary.correction")}
-                class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
-              />
-              <input
-                type="text"
-                bind:value={entryForm.aliases}
-                placeholder={t("vocabulary.aliases")}
-                aria-label={t("vocabulary.aliases")}
-                class="w-full rounded border border-border bg-bg-primary px-2 py-1 text-sm"
-              />
-              <div class="flex gap-2">
-                <button
-                  onclick={handleAddEntry}
-                  class="rounded bg-accent px-2 py-1 text-xs text-white hover:bg-accent/90"
-                >
-                  {t("vocabulary.save")}
-                </button>
-                <button
-                  onclick={() => { showAddEntry = false; entryForm = { correction: "", aliases: "" }; }}
-                  class="rounded border border-border bg-bg-primary px-2 py-1 text-xs hover:bg-bg-surface"
-                >
-                  {t("vocabulary.cancel")}
-                </button>
-              </div>
-            </div>
-          {:else if editingEntryId === null}
-            <button
-              onclick={() => { showAddEntry = true; entryForm = { correction: "", aliases: "" }; }}
-              class="rounded border border-border bg-bg-primary px-3 py-1 text-xs hover:bg-bg-surface"
-            >
-              {t("vocabulary.add_entry")}
-            </button>
-          {/if}
-        </div>
+      {#if customWords.length === 0}
+        <p class="text-sm text-text-secondary">{t("vocabulary.empty")}</p>
       {:else}
-        <div class="space-y-3">
-          <div class="flex items-center justify-between mb-2">
-            <label for="active-vocab" class="text-sm">{t("settings.vocabulary_id")}</label>
-            <select
-              id="active-vocab"
-              value={settings.custom_vocabulary_id ?? ""}
-              onchange={(e) => {
-                const val = (e.target as HTMLSelectElement).value;
-                saveSetting("custom_vocabulary_id", val === "" ? null : Number(val));
-                if (settings) settings.custom_vocabulary_id = val === "" ? null : Number(val);
-              }}
-              class="max-w-48 truncate rounded border border-border bg-bg-primary px-3 py-1 text-sm"
-            >
-              <option value="">{t("settings.vocabulary_none")}</option>
-              {#each vocabCollections as col (col.id)}
-                <option value={col.id}>{col.name}</option>
-              {/each}
-            </select>
-          </div>
-
-          {#if vocabCollections.length === 0 && !showAddCollection}
-            <p class="text-sm text-text-secondary">{t("vocabulary.empty")}</p>
-          {/if}
-
-          <div class="space-y-1">
-            {#each vocabCollections as col (col.id)}
-              <div class="flex items-center justify-between rounded border border-border bg-bg-surface px-3 py-2">
-                <div>
-                  <span class="text-sm font-medium">{col.name}</span>
-                  <span class="ml-2 text-xs text-text-secondary">
-                    {t("vocabulary.entries_count").replace("{count}", String(vocabEntryCounts[col.id] ?? 0))}
-                  </span>
-                </div>
-                <div class="flex gap-1">
-                  <button
-                    onclick={() => openCollectionManager(col.id)}
-                    class="rounded px-2 py-0.5 text-xs text-accent hover:bg-bg-primary"
-                  >
-                    {t("vocabulary.manage")}
-                  </button>
-                  <button
-                    onclick={() => handleDeleteCollection(col.id)}
-                    class="rounded px-2 py-0.5 text-xs text-status-recording hover:bg-bg-primary"
-                  >
-                    {t("vocabulary.delete")}
-                  </button>
-                </div>
-              </div>
-            {/each}
-          </div>
-
-          {#if showAddCollection}
-            <div class="flex gap-2">
-              <input
-                type="text"
-                bind:value={newCollectionName}
-                placeholder={t("vocabulary.collection_name")}
-                class="flex-1 rounded border border-border bg-bg-primary px-3 py-1 text-sm"
-              />
+        <div class="flex flex-wrap gap-2">
+          {#each customWords as word (word)}
+            <span class="inline-flex items-center gap-1 rounded-full border border-border bg-bg-surface px-3 py-1 text-sm">
+              {word}
               <button
-                onclick={handleAddCollection}
-                class="rounded bg-accent px-3 py-1 text-sm text-white hover:bg-accent/90"
+                onclick={() => handleRemoveCustomWord(word)}
+                class="ml-0.5 rounded-full p-0.5 text-text-secondary hover:text-status-recording"
+                aria-label="{t('vocabulary.remove')} {word}"
               >
-                {t("vocabulary.save")}
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
               </button>
-              <button
-                onclick={() => { showAddCollection = false; newCollectionName = ""; }}
-                class="rounded border border-border bg-bg-primary px-3 py-1 text-sm hover:bg-bg-surface"
-              >
-                {t("vocabulary.cancel")}
-              </button>
-            </div>
-          {:else}
-            <button
-              onclick={() => { showAddCollection = true; newCollectionName = ""; }}
-              class="rounded border border-border bg-bg-primary px-3 py-1.5 text-sm text-text-primary hover:bg-bg-surface focus:outline-none focus:ring-2 focus:ring-accent"
-            >
-              {t("vocabulary.add_collection")}
-            </button>
-          {/if}
+            </span>
+          {/each}
         </div>
+        <p class="mt-3 text-xs text-text-secondary">
+          {t("vocabulary.word_count").replace("{count}", String(customWords.length))}
+        </p>
       {/if}
     </section>
     {/if}

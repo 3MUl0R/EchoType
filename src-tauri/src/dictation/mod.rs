@@ -348,7 +348,7 @@ impl DictationManager {
                 auto_submit_key,
                 auto_submit_delay_ms,
                 edit_buffer_enabled,
-                vocab_id,
+                custom_words,
             ) = {
                 let conn = db.lock().await;
                 let level_str = crate::settings::get_typed_with_profile::<String>(
@@ -399,14 +399,13 @@ impl DictationManager {
                     pid,
                 )
                 .unwrap_or(false);
-                let vocabulary_id: Option<i64> =
-                    crate::settings::get_typed_with_profile::<Option<i64>>(
+                let custom_words: Vec<String> =
+                    crate::settings::get_typed_with_profile(
                         &conn,
-                        crate::settings::keys::CUSTOM_VOCABULARY_ID,
+                        crate::settings::keys::CUSTOM_WORDS,
                         pid,
                     )
-                    .ok()
-                    .flatten();
+                    .unwrap_or_default();
                 (
                     SuppressionLevel::from_str(&level_str),
                     method,
@@ -416,7 +415,7 @@ impl DictationManager {
                     output::AutoSubmitKey::from_str(&submit_key_str),
                     submit_delay,
                     edit_buf,
-                    vocabulary_id,
+                    custom_words,
                 )
             };
 
@@ -428,10 +427,13 @@ impl DictationManager {
                     let latency_breakdown = pipeline_result.latency;
                     let raw_text = pipeline_result.text;
 
-                    // Apply vocabulary corrections before postprocessing
-                    let corrected = if let Some(vid) = vocab_id {
-                        let conn = db.lock().await;
-                        vocabulary::apply_corrections(&conn, vid, &raw_text)
+                    // Apply custom word corrections before postprocessing
+                    let corrected = if !custom_words.is_empty() {
+                        vocabulary::apply_custom_words(
+                            &raw_text,
+                            &custom_words,
+                            vocabulary::DEFAULT_THRESHOLD,
+                        )
                     } else {
                         raw_text
                     };

@@ -31,7 +31,7 @@ pub mod keys {
     pub const AUTO_SUBMIT_DELAY_MS: &str = "auto_submit_delay_ms";
     pub const STREAMING_ENABLED: &str = "streaming_enabled";
     pub const EDIT_BUFFER_ENABLED: &str = "edit_buffer_enabled";
-    pub const CUSTOM_VOCABULARY_ID: &str = "custom_vocabulary_id";
+    pub const CUSTOM_WORDS: &str = "custom_words";
     pub const PRIVATE_MODE_ENABLED: &str = "private_mode_enabled";
     pub const MUTE_SYSTEM_AUDIO: &str = "mute_system_audio";
     pub const ENGINE_TYPE: &str = "engine_type";
@@ -75,7 +75,7 @@ pub struct AllSettings {
     pub auto_submit_delay_ms: u64,
     pub streaming_enabled: bool,
     pub edit_buffer_enabled: bool,
-    pub custom_vocabulary_id: Option<i64>,
+    pub custom_words: Vec<String>,
     pub private_mode_enabled: bool,
     pub mute_system_audio: bool,
     pub engine_type: String,
@@ -123,7 +123,7 @@ fn default_for(key: &str) -> Option<String> {
         keys::AUTO_SUBMIT_DELAY_MS => "100",
         keys::STREAMING_ENABLED => "true",
         keys::EDIT_BUFFER_ENABLED => "false",
-        keys::CUSTOM_VOCABULARY_ID => "null",
+        keys::CUSTOM_WORDS => "[]",
         keys::PRIVATE_MODE_ENABLED => "false",
         keys::MUTE_SYSTEM_AUDIO => "false",
         keys::ENGINE_TYPE => "\"local\"",
@@ -218,7 +218,7 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         auto_submit_delay_ms: get_typed(conn, keys::AUTO_SUBMIT_DELAY_MS)?,
         streaming_enabled: get_typed(conn, keys::STREAMING_ENABLED)?,
         edit_buffer_enabled: get_typed(conn, keys::EDIT_BUFFER_ENABLED)?,
-        custom_vocabulary_id: get_typed(conn, keys::CUSTOM_VOCABULARY_ID).ok().flatten(),
+        custom_words: get_typed(conn, keys::CUSTOM_WORDS).unwrap_or_default(),
         private_mode_enabled: get_typed(conn, keys::PRIVATE_MODE_ENABLED)?,
         mute_system_audio: get_typed(conn, keys::MUTE_SYSTEM_AUDIO)?,
         engine_type: get_typed(conn, keys::ENGINE_TYPE)?,
@@ -319,7 +319,7 @@ mod tests {
             keys::AUTO_SUBMIT_DELAY_MS,
             keys::STREAMING_ENABLED,
             keys::EDIT_BUFFER_ENABLED,
-            keys::CUSTOM_VOCABULARY_ID,
+            keys::CUSTOM_WORDS,
             keys::PRIVATE_MODE_ENABLED,
             keys::MUTE_SYSTEM_AUDIO,
             keys::ENGINE_TYPE,
@@ -400,7 +400,7 @@ mod tests {
         assert_eq!(all.auto_submit_delay_ms, 100);
         assert!(all.streaming_enabled);
         assert!(!all.edit_buffer_enabled);
-        assert!(all.custom_vocabulary_id.is_none());
+        assert!(all.custom_words.is_empty());
         assert!(!all.private_mode_enabled);
         assert!(!all.mute_system_audio);
         assert_eq!(all.engine_type, "local");

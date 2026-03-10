@@ -637,103 +637,41 @@ pub async fn remove_profile_setting(
     crate::db::profiles::remove_setting(&conn, profile_id, &key)
 }
 
-// --- Vocabulary Commands ---
+// --- Custom Words Commands ---
 
 #[tauri::command]
-pub async fn list_vocabulary_collections(
-    state: State<'_, AppState>,
-) -> Result<Vec<crate::db::vocabulary::VocabularyCollection>, String> {
+pub async fn get_custom_words(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let conn = state.db.lock().await;
-    crate::db::vocabulary::list_collections(&conn)
+    crate::settings::get_typed(&conn, crate::settings::keys::CUSTOM_WORDS)
 }
 
 #[tauri::command]
-pub async fn create_vocabulary_collection(
-    state: State<'_, AppState>,
-    name: String,
-) -> Result<i64, String> {
+pub async fn add_custom_word(state: State<'_, AppState>, word: String) -> Result<Vec<String>, String> {
     let conn = state.db.lock().await;
-    crate::db::vocabulary::create_collection(&conn, &name)
-}
-
-#[tauri::command]
-pub async fn rename_vocabulary_collection(
-    state: State<'_, AppState>,
-    id: i64,
-    name: String,
-) -> Result<(), String> {
-    let conn = state.db.lock().await;
-    crate::db::vocabulary::rename_collection(&conn, id, &name)
-}
-
-#[tauri::command]
-pub async fn delete_vocabulary_collection(
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<(), String> {
-    let conn = state.db.lock().await;
-    crate::db::vocabulary::delete_collection(&conn, id)
-}
-
-#[tauri::command]
-pub async fn list_vocabulary_entries(
-    state: State<'_, AppState>,
-    collection_id: i64,
-) -> Result<Vec<crate::db::vocabulary::VocabularyEntry>, String> {
-    let conn = state.db.lock().await;
-    crate::db::vocabulary::list_entries(&conn, collection_id)
-}
-
-#[tauri::command]
-pub async fn add_vocabulary_entry(
-    state: State<'_, AppState>,
-    collection_id: i64,
-    correction: String,
-    aliases: Vec<String>,
-) -> Result<i64, String> {
-    let conn = state.db.lock().await;
-    crate::db::vocabulary::add_entry(&conn, collection_id, &correction, &aliases)
-}
-
-#[tauri::command]
-pub async fn update_vocabulary_entry(
-    state: State<'_, AppState>,
-    id: i64,
-    correction: String,
-    aliases: Vec<String>,
-) -> Result<(), String> {
-    let conn = state.db.lock().await;
-    crate::db::vocabulary::update_entry(&conn, id, &correction, &aliases)
-}
-
-#[tauri::command]
-pub async fn delete_vocabulary_entry(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    let conn = state.db.lock().await;
-    crate::db::vocabulary::delete_entry(&conn, id)
-}
-
-#[tauri::command]
-pub async fn vocabulary_entry_count(
-    state: State<'_, AppState>,
-    collection_id: i64,
-) -> Result<i64, String> {
-    let conn = state.db.lock().await;
-    crate::db::vocabulary::entry_count(&conn, collection_id)
-}
-
-#[tauri::command]
-pub async fn import_vocabulary_json(
-    state: State<'_, AppState>,
-    collection_id: i64,
-    entries: Vec<crate::db::vocabulary::VocabularyEntry>,
-) -> Result<u32, String> {
-    let conn = state.db.lock().await;
-    let mut count = 0u32;
-    for entry in &entries {
-        crate::db::vocabulary::add_entry(&conn, collection_id, &entry.correction, &entry.aliases)?;
-        count += 1;
+    let mut words: Vec<String> =
+        crate::settings::get_typed(&conn, crate::settings::keys::CUSTOM_WORDS).unwrap_or_default();
+    let trimmed = word.trim().to_string();
+    if !trimmed.is_empty() && !words.iter().any(|w| w.eq_ignore_ascii_case(&trimmed)) {
+        words.push(trimmed);
+        words.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        let json = serde_json::to_string(&words).map_err(|e| e.to_string())?;
+        crate::settings::set(&conn, crate::settings::keys::CUSTOM_WORDS, &json)?;
     }
-    Ok(count)
+    Ok(words)
+}
+
+#[tauri::command]
+pub async fn remove_custom_word(
+    state: State<'_, AppState>,
+    word: String,
+) -> Result<Vec<String>, String> {
+    let conn = state.db.lock().await;
+    let mut words: Vec<String> =
+        crate::settings::get_typed(&conn, crate::settings::keys::CUSTOM_WORDS).unwrap_or_default();
+    words.retain(|w| w != &word);
+    let json = serde_json::to_string(&words).map_err(|e| e.to_string())?;
+    crate::settings::set(&conn, crate::settings::keys::CUSTOM_WORDS, &json)?;
+    Ok(words)
 }
 
 // --- Private Mode Commands ---

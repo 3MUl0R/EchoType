@@ -55,6 +55,10 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "linux-
 rusqlite = { version = "0.34", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+# Fuzzy text matching (custom vocabulary)
+strsim = "0.11"
+natural = "0.5"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

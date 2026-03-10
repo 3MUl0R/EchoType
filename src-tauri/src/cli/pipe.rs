@@ -19,7 +19,7 @@ pub fn run(once: bool) {
     let db = crate::db::open(&db_path).expect("Cannot open database");
 
     // Load the active model
-    let (model_path, suppression_level, vocab_id) = {
+    let (model_path, suppression_level) = {
         let conn = db.blocking_lock();
         let model_id =
             crate::settings::get_typed::<String>(&conn, crate::settings::keys::ACTIVE_MODEL_ID)
@@ -51,14 +51,7 @@ pub fn run(once: bool) {
         )
         .unwrap_or_else(|_| "moderate".to_string());
 
-        let vid: Option<i64> = crate::settings::get_typed::<Option<i64>>(
-            &conn,
-            crate::settings::keys::CUSTOM_VOCABULARY_ID,
-        )
-        .ok()
-        .flatten();
-
-        (path, denoise::SuppressionLevel::from_str(&level_str), vid)
+        (path, denoise::SuppressionLevel::from_str(&level_str))
     };
 
     eprint!("Loading model... ");
@@ -94,7 +87,7 @@ pub fn run(once: bool) {
 
         match transcribe(&engine, &buffer, suppression_level) {
             Ok(text) => {
-                let text = apply_vocab(&db, vocab_id, &text);
+                let text = apply_vocab(&db, &text);
                 println!("{text}");
             }
             Err(e) => {
@@ -127,7 +120,7 @@ pub fn run(once: bool) {
                     let buffer = session.stop();
                     if had_speech && buffer.duration_secs() >= MIN_DURATION {
                         if let Ok(text) = transcribe(&engine, &buffer, suppression_level) {
-                            let text = apply_vocab(&db, vocab_id, &text);
+                            let text = apply_vocab(&db, &text);
                             if !text.trim().is_empty() {
                                 println!("{text}");
                             }
@@ -165,7 +158,7 @@ pub fn run(once: bool) {
             if buffer.duration_secs() >= MIN_DURATION {
                 match transcribe(&engine, &buffer, suppression_level) {
                     Ok(text) => {
-                        let text = apply_vocab(&db, vocab_id, &text);
+                        let text = apply_vocab(&db, &text);
                         if !text.trim().is_empty() {
                             println!("{text}");
                         }
@@ -202,13 +195,21 @@ fn transcribe(
     Ok(result.text)
 }
 
-fn apply_vocab(db: &crate::db::DbHandle, vocab_id: Option<i64>, text: &str) -> String {
-    if let Some(vid) = vocab_id {
-        let conn = db.blocking_lock();
-        crate::dictation::vocabulary::apply_corrections(&conn, vid, text)
-    } else {
-        text.to_string()
+fn apply_vocab(db: &crate::db::DbHandle, text: &str) -> String {
+    let conn = db.blocking_lock();
+    let custom_words: Vec<String> = crate::settings::get_typed(
+        &conn,
+        crate::settings::keys::CUSTOM_WORDS,
+    )
+    .unwrap_or_default();
+    if custom_words.is_empty() {
+        return text.to_string();
     }
+    crate::dictation::vocabulary::apply_custom_words(
+        text,
+        &custom_words,
+        crate::dictation::vocabulary::DEFAULT_THRESHOLD,
+    )
 }
 
 fn compute_rms(samples: &[f32]) -> f32 {

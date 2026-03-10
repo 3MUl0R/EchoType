@@ -1,98 +1,53 @@
-use rusqlite::Connection;
-use tracing::{debug, info};
+use natural::phonetics::soundex;
+use strsim::levenshtein;
+use tracing::info;
 
-/// A pre-built replacement rule: a lowercased alias → correction.
-struct Rule {
-    alias_lower: String,
-    correction: String,
-}
+/// Default fuzzy-matching threshold.
+/// Lower = stricter. 0.18 works well for speech recognition corrections.
+pub const DEFAULT_THRESHOLD: f64 = 0.18;
 
-/// Apply vocabulary corrections to text using the given collection.
+/// Apply custom word corrections to transcribed text using fuzzy matching.
 ///
-/// Algorithm:
-/// 1. Load all entries from the collection
-/// 2. Flatten aliases into (alias_lower, correction) pairs
-/// 3. Sort by alias length descending (longest-match-first)
-/// 4. Single-pass, non-recursive scan: for each position, try the longest alias first
-/// 5. Case-insensitive matching at word boundaries only
-/// 6. Replaced text is not re-scanned (prevents infinite loops)
-pub fn apply_corrections(conn: &Connection, collection_id: i64, text: &str) -> String {
-    let entries = match crate::db::vocabulary::list_entries(conn, collection_id) {
-        Ok(e) => e,
-        Err(e) => {
-            debug!(%e, "Failed to load vocabulary entries");
-            return text.to_string();
-        }
-    };
-
-    if entries.is_empty() {
+/// Uses Levenshtein distance + Soundex phonetic matching + n-gram matching
+/// to automatically find and correct misheard words — no manual aliases needed.
+pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -> String {
+    if custom_words.is_empty() || text.is_empty() {
         return text.to_string();
     }
 
-    // Build rules: flatten all aliases into (alias_lower, correction)
-    let mut rules: Vec<Rule> = Vec::new();
-    for entry in &entries {
-        for alias in &entry.aliases {
-            let alias_trimmed = alias.trim();
-            if !alias_trimmed.is_empty() {
-                rules.push(Rule {
-                    alias_lower: alias_trimmed.to_lowercase(),
-                    correction: entry.correction.clone(),
-                });
-            }
-        }
-    }
+    // Pre-compute lowercase and no-space versions for comparison
+    let custom_words_lower: Vec<String> = custom_words.iter().map(|w| w.to_lowercase()).collect();
+    let custom_words_nospace: Vec<String> = custom_words_lower
+        .iter()
+        .map(|w| w.replace(' ', ""))
+        .collect();
 
-    // Sort by alias length descending (longest-match-first)
-    rules.sort_by(|a, b| b.alias_lower.len().cmp(&a.alias_lower.len()));
-
-    if rules.is_empty() {
-        return text.to_string();
-    }
-
-    let text_lower = text.to_lowercase();
-    let text_chars: Vec<char> = text.chars().collect();
-    let lower_chars: Vec<char> = text_lower.chars().collect();
-
-    // Guard against to_lowercase() changing char count (e.g. German ß → ss)
-    if text_chars.len() != lower_chars.len() {
-        return text.to_string();
-    }
-
-    let len = text_chars.len();
-
-    let mut result = String::with_capacity(text.len());
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut result = Vec::new();
     let mut i = 0;
     let mut replacements = 0u32;
 
-    while i < len {
+    while i < words.len() {
         let mut matched = false;
 
-        for rule in &rules {
-            let alias_chars: Vec<char> = rule.alias_lower.chars().collect();
-            let alias_len = alias_chars.len();
-
-            if i + alias_len > len {
+        // Try n-grams from longest (3) to shortest (1) — greedy longest match
+        for n in (1..=3).rev() {
+            if i + n > words.len() {
                 continue;
             }
 
-            // Check word boundary at start
-            if i > 0 && is_word_char(lower_chars[i - 1]) {
-                continue;
-            }
+            let ngram_words = &words[i..i + n];
+            let ngram = build_ngram(ngram_words);
 
-            // Check word boundary at end
-            if i + alias_len < len && is_word_char(lower_chars[i + alias_len]) {
-                continue;
-            }
+            if let Some((replacement, _score)) =
+                find_best_match(&ngram, custom_words, &custom_words_nospace, threshold)
+            {
+                let (prefix, _) = extract_punctuation(ngram_words[0]);
+                let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
 
-            // Compare characters (case-insensitive — using pre-lowered)
-            let slice = &lower_chars[i..i + alias_len];
-            if slice == alias_chars.as_slice() {
-                // Preserve case pattern from original text in the correction
-                let corrected = transfer_case(&text_chars[i..i + alias_len], &rule.correction);
-                result.push_str(&corrected);
-                i += alias_len;
+                let corrected = preserve_case_pattern(ngram_words[0], replacement);
+                result.push(format!("{prefix}{corrected}{suffix}"));
+                i += n;
                 matched = true;
                 replacements += 1;
                 break;
@@ -100,184 +55,219 @@ pub fn apply_corrections(conn: &Connection, collection_id: i64, text: &str) -> S
         }
 
         if !matched {
-            result.push(text_chars[i]);
+            result.push(words[i].to_string());
             i += 1;
         }
     }
 
     if replacements > 0 {
-        info!(replacements, "Applied vocabulary corrections");
+        info!(replacements, "Applied custom word corrections");
     }
 
-    result
+    result.join(" ")
 }
 
-/// Check if a character is a word character (alphanumeric or apostrophe).
-fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '\''
-}
-
-/// Transfer the case pattern from the original text to the correction.
-///
-/// - If all source chars are uppercase → UPPERCASE correction
-/// - If first source char is uppercase, rest lower → Title Case correction
-/// - Otherwise → correction as-is
-fn transfer_case(source: &[char], correction: &str) -> String {
-    if source.is_empty() {
-        return correction.to_string();
-    }
-
-    let alpha_chars: Vec<char> = source
+/// Build an n-gram string by stripping punctuation, lowercasing, and concatenating.
+/// This lets "Charge B" match against "ChargeBee".
+fn build_ngram(words: &[&str]) -> String {
+    words
         .iter()
-        .copied()
-        .filter(|c| c.is_alphabetic())
-        .collect();
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .collect::<Vec<_>>()
+        .concat()
+}
 
-    if alpha_chars.is_empty() {
-        return correction.to_string();
+/// Find the best matching custom word for a candidate string.
+///
+/// Uses Levenshtein distance and Soundex phonetic matching.
+/// Returns the best match and its score, if any match is within threshold.
+fn find_best_match<'a>(
+    candidate: &str,
+    custom_words: &'a [String],
+    custom_words_nospace: &[String],
+    threshold: f64,
+) -> Option<(&'a String, f64)> {
+    if candidate.is_empty() || candidate.len() > 50 {
+        return None;
     }
 
-    let all_upper = alpha_chars.iter().all(|c| c.is_uppercase());
-    let title_case = alpha_chars[0].is_uppercase()
-        && alpha_chars.len() > 1
-        && alpha_chars[1..].iter().all(|c| c.is_lowercase());
+    let mut best_match: Option<&String> = None;
+    let mut best_score = f64::MAX;
 
-    if all_upper {
-        correction.to_uppercase()
-    } else if title_case {
-        let mut chars = correction.chars();
-        match chars.next() {
-            Some(first) => {
-                let mut result: String = first.to_uppercase().collect();
-                result.extend(chars);
-                result
-            }
-            None => correction.to_string(),
+    for (i, custom_word_nospace) in custom_words_nospace.iter().enumerate() {
+        // Skip if lengths are too different (max 15% difference, minimum 1 char)
+        // Tight constraint prevents n-grams from absorbing unrelated short words
+        let len_diff = (candidate.len() as i32 - custom_word_nospace.len() as i32).abs() as f64;
+        let max_len = candidate.len().max(custom_word_nospace.len()) as f64;
+        let max_allowed_diff = (max_len * 0.15).max(1.0);
+        if len_diff > max_allowed_diff {
+            continue;
         }
-    } else {
-        correction.to_string()
+
+        // Normalized Levenshtein distance
+        let lev_dist = levenshtein(candidate, custom_word_nospace);
+        let lev_score = if max_len > 0.0 {
+            lev_dist as f64 / max_len
+        } else {
+            1.0
+        };
+
+        // Phonetic similarity via Soundex
+        let phonetic_match = soundex(candidate, custom_word_nospace);
+
+        // Combined score: significant boost for phonetic matches
+        let combined_score = if phonetic_match {
+            lev_score * 0.3
+        } else {
+            lev_score
+        };
+
+        if combined_score < threshold && combined_score < best_score {
+            best_match = Some(&custom_words[i]);
+            best_score = combined_score;
+        }
     }
+
+    best_match.map(|m| (m, best_score))
+}
+
+/// Preserve the case pattern of the original word when applying a replacement.
+fn preserve_case_pattern(original: &str, replacement: &str) -> String {
+    let clean = original.trim_matches(|c: char| !c.is_alphanumeric());
+    if clean.chars().all(|c| c.is_uppercase()) {
+        replacement.to_uppercase()
+    } else if clean.chars().next().map_or(false, |c| c.is_uppercase()) {
+        let mut chars: Vec<char> = replacement.chars().collect();
+        if let Some(first) = chars.get_mut(0) {
+            *first = first.to_uppercase().next().unwrap_or(*first);
+        }
+        chars.into_iter().collect()
+    } else {
+        replacement.to_string()
+    }
+}
+
+/// Extract punctuation prefix and suffix from a word.
+fn extract_punctuation(word: &str) -> (&str, &str) {
+    let prefix_end = word
+        .chars()
+        .take_while(|c| !c.is_alphanumeric())
+        .count();
+    let suffix_start = word
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| !c.is_alphanumeric())
+        .count();
+
+    let prefix = if prefix_end > 0 {
+        &word[..prefix_end]
+    } else {
+        ""
+    };
+
+    let suffix = if suffix_start > 0 {
+        &word[word.len() - suffix_start..]
+    } else {
+        ""
+    };
+
+    (prefix, suffix)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::vocabulary;
 
-    fn setup() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        crate::db::migrations::run(&conn).unwrap();
-        conn
+    #[test]
+    fn exact_match_corrects() {
+        let words = vec!["EchoType".to_string()];
+        let result = apply_custom_words("I use echotype daily", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "I use EchoType daily");
     }
 
     #[test]
-    fn basic_replacement() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        vocabulary::add_entry(&conn, cid, "EchoType", &["echo type".to_string()]).unwrap();
-
-        let result = apply_corrections(&conn, cid, "I use echo type for dictation");
-        assert_eq!(result, "I use EchoType for dictation");
+    fn fuzzy_match_corrects() {
+        let words = vec!["kubernetes".to_string()];
+        // "kubernetis" is a common mishearing — 1 edit away
+        let result = apply_custom_words("deploy to kubernetis", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "deploy to kubernetes");
     }
 
     #[test]
-    fn case_insensitive_match() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        vocabulary::add_entry(&conn, cid, "EchoType", &["echo type".to_string()]).unwrap();
-
-        let result = apply_corrections(&conn, cid, "ECHO TYPE is great");
-        assert_eq!(result, "ECHOTYPE is great");
+    fn phonetic_match_corrects() {
+        let words = vec!["EchoType".to_string()];
+        // Soundex similarity should help match "ekotype"
+        let result = apply_custom_words("I use ekotype daily", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "I use EchoType daily");
     }
 
     #[test]
-    fn title_case_transfer() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        vocabulary::add_entry(&conn, cid, "kubernetes", &["cooper net ease".to_string()]).unwrap();
-
-        let result = apply_corrections(&conn, cid, "Cooper net ease is a platform");
-        assert_eq!(result, "Kubernetes is a platform");
+    fn ngram_match_corrects() {
+        // "Charge Bee" said as two words should match "ChargeBee"
+        let words = vec!["ChargeBee".to_string()];
+        let result = apply_custom_words("I use Charge Bee for billing", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "I use ChargeBee for billing");
     }
 
     #[test]
-    fn word_boundary_respected() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        vocabulary::add_entry(&conn, cid, "cat", &["kat".to_string()]).unwrap();
-
-        // "kat" should NOT match inside "skate"
-        let result = apply_corrections(&conn, cid, "I skate every day");
-        assert_eq!(result, "I skate every day");
-
-        // But standalone "kat" should match
-        let result = apply_corrections(&conn, cid, "The kat sat down");
-        assert_eq!(result, "The cat sat down");
+    fn preserves_case_uppercase() {
+        let words = vec!["kubernetes".to_string()];
+        let result = apply_custom_words("KUBERNETIS is great", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "KUBERNETES is great");
     }
 
     #[test]
-    fn longest_match_first() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        vocabulary::add_entry(&conn, cid, "EchoType Pro", &["echo type pro".to_string()]).unwrap();
-        vocabulary::add_entry(&conn, cid, "EchoType", &["echo type".to_string()]).unwrap();
-
-        let result = apply_corrections(&conn, cid, "I use echo type pro daily");
-        assert_eq!(result, "I use EchoType Pro daily");
+    fn preserves_case_title() {
+        let words = vec!["kubernetes".to_string()];
+        let result = apply_custom_words("Kubernetis is great", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "Kubernetes is great");
     }
 
     #[test]
-    fn multiple_aliases() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        vocabulary::add_entry(
-            &conn,
-            cid,
-            "EchoType",
-            &[
-                "echo type".to_string(),
-                "eco type".to_string(),
-                "ekko type".to_string(),
-            ],
-        )
-        .unwrap();
+    fn preserves_punctuation() {
+        let words = vec!["EchoType".to_string()];
+        let result = apply_custom_words("I love echotype!", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "I love EchoType!");
+    }
 
-        assert_eq!(
-            apply_corrections(&conn, cid, "eco type is nice"),
-            "EchoType is nice"
+    #[test]
+    fn no_match_leaves_unchanged() {
+        let words = vec!["kubernetes".to_string()];
+        let result = apply_custom_words("the cat sat on the mat", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "the cat sat on the mat");
+    }
+
+    #[test]
+    fn empty_words_returns_original() {
+        let result = apply_custom_words("hello world", &[], DEFAULT_THRESHOLD);
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn empty_text_returns_empty() {
+        let words = vec!["test".to_string()];
+        let result = apply_custom_words("", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn multiple_custom_words() {
+        let words = vec!["EchoType".to_string(), "Kubernetes".to_string()];
+        let result = apply_custom_words(
+            "I use echotype with kubernetis",
+            &words,
+            DEFAULT_THRESHOLD,
         );
-        assert_eq!(
-            apply_corrections(&conn, cid, "ekko type works"),
-            "EchoType works"
-        );
+        assert_eq!(result, "I use EchoType with Kubernetes");
     }
 
     #[test]
-    fn no_recursive_replacement() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        // Create a circular-ish rule: foo → bar, bar → foo
-        vocabulary::add_entry(&conn, cid, "bar", &["foo".to_string()]).unwrap();
-        vocabulary::add_entry(&conn, cid, "foo", &["bar".to_string()]).unwrap();
-
-        // "foo" should become "bar", but "bar" should NOT be re-scanned
-        let result = apply_corrections(&conn, cid, "foo bar");
-        assert_eq!(result, "bar foo");
-    }
-
-    #[test]
-    fn empty_collection() {
-        let conn = setup();
-        let cid = vocabulary::create_collection(&conn, "test").unwrap();
-        let result = apply_corrections(&conn, cid, "some text");
-        assert_eq!(result, "some text");
-    }
-
-    #[test]
-    fn transfer_case_variations() {
-        assert_eq!(transfer_case(&['H', 'e', 'l', 'l', 'o'], "world"), "World");
-        assert_eq!(transfer_case(&['H', 'E', 'L', 'L', 'O'], "world"), "WORLD");
-        assert_eq!(transfer_case(&['h', 'e', 'l', 'l', 'o'], "World"), "World");
+    fn multi_word_custom_word() {
+        let words = vec!["Visual Studio".to_string()];
+        let result = apply_custom_words("open visualstudio now", &words, DEFAULT_THRESHOLD);
+        assert_eq!(result, "open Visual Studio now");
     }
 }
