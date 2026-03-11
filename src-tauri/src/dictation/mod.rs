@@ -1217,8 +1217,32 @@ fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
 
     info!(x = x, y = y, win_width = win_width, win_height = win_height, "Overlay position calculated");
 
+    // In dev mode, resolve the URL explicitly so we can log it and avoid
+    // any WebviewUrl::App resolution quirks on Windows.
+    #[cfg(dev)]
+    let url = {
+        let dev_url = &app.config().build.dev_url;
+        if let Some(base) = dev_url {
+            match base.join("overlay.html") {
+                Ok(u) => {
+                    info!(url = %u, "Overlay dev URL resolved");
+                    tauri::WebviewUrl::External(u)
+                }
+                Err(e) => {
+                    warn!(%e, "Failed to join overlay URL, using App fallback");
+                    tauri::WebviewUrl::App("overlay.html".into())
+                }
+            }
+        } else {
+            tauri::WebviewUrl::App("overlay.html".into())
+        }
+    };
+    #[cfg(not(dev))]
     let url = tauri::WebviewUrl::App("overlay.html".into());
-    let _window = WebviewWindowBuilder::new(app, "overlay", url)
+
+    // Try with transparency first; fall back to opaque if WebView2 rejects
+    // transparent mode (seen on some Windows 10 builds with older WebView2).
+    let _window = match WebviewWindowBuilder::new(app, "overlay", url.clone())
         .title("EchoType Overlay")
         .inner_size(win_width, win_height)
         .position(x, y)
@@ -1230,9 +1254,27 @@ fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
         .focused(false)
         .shadow(false)
         .build()
-        .map_err(|e| format!("Failed to create overlay window: {e}"))?;
+    {
+        Ok(w) => {
+            info!("Overlay window created (transparent)");
+            w
+        }
+        Err(e) => {
+            warn!(%e, "Transparent overlay failed, retrying without transparency");
+            WebviewWindowBuilder::new(app, "overlay", url)
+                .title("EchoType Overlay")
+                .inner_size(win_width, win_height)
+                .position(x, y)
+                .resizable(false)
+                .decorations(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .focused(false)
+                .build()
+                .map_err(|e2| format!("Failed to create overlay window (fallback): {e2}"))?
+        }
+    };
 
-    info!("Overlay window created");
     Ok(())
 }
 
