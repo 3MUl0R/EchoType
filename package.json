@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "source .env && tauri dev",
-    "build": "source .env && tauri build",
+    "dev": "bash -c 'source .env && tauri dev'",
+    "build": "bash -c 'source .env && tauri build'",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
