@@ -2,135 +2,181 @@
 
 **Your voice, your machine, your rules.**
 
-EchoType is a desktop dictation app that transcribes speech to text and inserts it where your cursor is. Hold a hotkey, speak, release, and your words appear at the cursor in any application.
+Hold a key, speak, release — your words appear at the cursor in any app. Local-first dictation powered by Whisper, with optional cloud engines when you want speed or scale.
 
-Local-first, fast, and private by default, with optional cloud engines when you want them. Built with Rust and Tauri 2 for a stable lightweight runtime footprint.
+No accounts. No telemetry. Verify it yourself — the codebase is the proof. Runs from source so you — or your AI — can fix, extend, and ship it.
 
-## Features
+## Why Run From Source
 
-### Dictation
+EchoType is designed to be cloned, built, and operated directly from source. This isn't a fallback — it's the primary workflow. Running from source means:
 
-- **Hold-to-dictate** — global hotkey works in any application, on any platform
-- **Multiple dictation modes** — hold-to-dictate, toggle, and voice activity detection (VAD)
-- **Text insertion** — direct input, clipboard + paste, or clipboard-only output
-- **Selection-aware replacement** — dictate over selected text to replace it
-- **Edit-before-insert** — review and edit transcription before committing
-- **Focus lock** — captures your target window so text lands in the right place
-- **Low latency** — optimized audio pipeline with latency profiling per engine
+- Your AI coding agent can diagnose issues, apply fixes, run checks, and submit PRs autonomously
+- You get the latest code, not a stale installer
+- The full build pipeline is non-interactive and deterministic — clone, bootstrap, run
 
-### Engines and Models
-
-- **Local transcription** — Whisper models via `whisper-rs`, fully offline after download
-- **Model management** — browse, download, verify, and switch models from the UI
-- **Cloud providers** — Groq, OpenAI, and Deepgram with bring-your-own API keys
-- **Engine comparison** — latency profiling tracks processing, transcription, and insertion time per engine so you can compare local models against cloud providers
-- **Multi-language support** with per-model language selection
-
-### Privacy and Data
-
-- **No accounts required** — everything is stored locally in SQLite
-- **Private mode** — skip history storage for sensitive sessions
-- **Cloud is opt-in** — local transcription is the default; cloud requires explicit key setup
-- **API keys in OS keychain** — stored via the platform's native credential manager
-
-### Customization
-
-- **Per-application profiles** — auto-switch settings based on the focused application
-- **Custom vocabulary** — word lists for domain-specific correction
-- **Themes** — dark (default), light, and high-contrast; respects OS text scaling
-- **Configurable hotkeys** — set your preferred activation key and mode per profile
-- **Audio muting** — optionally mute system audio during dictation
-
-### Metrics and History
-
-- **Dictation history** — browse, search, copy, and replay past transcriptions
-- **Usage dashboard** — daily/weekly stats, hourly activity patterns, words per minute tracking
-- **Latency profiling** — per-engine breakdown of processing, network, transcription, and insertion time with p50/p95 percentiles
-- **Streaks and milestones** — fun usage badges
-
-### System Integration
-
-- **System tray** — runs from the tray with no taskbar clutter
-- **First-run setup wizard** — guided mic permission, model download, and hotkey configuration
-- **Auto-updater** — checks for updates via signed GitHub Releases
-- **Diagnostic tools** — copy diagnostic info, test microphone, test transcription
-- **CLI modes** — daemon and pipe modes for automation workflows
-
-## AI-First Development
-
-EchoType is built as an **AI-operable project**. A coding agent can clone, bootstrap, run, inspect, fix, test, and commit — all with non-interactive commands. This is a core project requirement, not a side workflow.
-
-- AI operator guide: [docs/ai-operator.md](docs/ai-operator.md)
-- Agent scripts: `./scripts/agent/bootstrap`, `dev`, `check`, `logs`, `fix`
-
-### Hand it to your agent
+## Hand It to Your AI
 
 ```text
 Clone https://github.com/3MUl0R/EchoType.git.
 Read README.md and docs/ai-operator.md.
-Set up the project, run it from source, inspect logs, fix issues, run checks, and commit changes with a clear summary.
+Bootstrap the project, run it from source, inspect logs, fix issues, and commit changes.
 ```
 
-## Tech Stack
+Agent scripts (`./scripts/agent/`):
 
-| Layer | Technology |
-|-------|-----------|
-| Runtime | [Tauri 2](https://v2.tauri.app/) (Rust backend, webview frontend) |
-| Frontend | Svelte 5, Tailwind CSS v4, Vite |
-| Local STT | [whisper-rs](https://github.com/tazz4843/whisper-rs) (whisper.cpp bindings) |
-| Cloud STT | Groq, OpenAI, Deepgram APIs |
-| Database | SQLite via `rusqlite` (bundled) |
-| Audio | `cpal` (capture), `nnnoiseless` (denoise), `rubato` (resample), `rodio` (playback) |
-| Package manager | Bun |
+| Script | Purpose |
+|--------|---------|
+| `bootstrap` | Install deps, verify toolchain |
+| `dev` | Run from source |
+| `check` | Lint, test, verify |
+| `logs` | Print recent runtime logs |
+| `fix` | Auto-fix formatting and lint issues |
 
-## Getting Started
+All scripts are non-interactive, return deterministic exit codes, and are safe to run repeatedly.
 
-### Prerequisites
+## Prerequisites
 
-- [Rust](https://rustup.rs/) (stable)
-- [Bun](https://bun.sh/)
-- Platform prerequisites for Tauri 2 ([see Tauri docs](https://v2.tauri.app/start/prerequisites/))
+Install these before bootstrapping:
 
-### Run from source
+| Dependency | Install | Verify |
+|-----------|---------|--------|
+| **Rust** (stable) | [rustup.rs](https://rustup.rs/) | `rustc --version` |
+| **Bun** | [bun.sh](https://bun.sh/) | `bun --version` |
+| **Tauri 2 system deps** | See below | — |
+
+### Tauri 2 platform dependencies
+
+**Windows:** Visual Studio Build Tools with "Desktop development with C++" workload, or full Visual Studio with MSVC.
+
+**macOS:** `xcode-select --install`
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+```
+
+Full list: [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+
+## Quick Start
 
 ```bash
 git clone https://github.com/3MUl0R/EchoType.git
 cd EchoType
 bun install
-bun run tauri dev
+bun run dev
 ```
 
-### Build
+Or use the agent bootstrap for a verified setup:
 
 ```bash
-bun run tauri build
+./scripts/agent/bootstrap
+./scripts/agent/dev
 ```
 
-## Project Status
+> **Note for AI agents:** `./scripts/agent/dev` is a long-running blocking process (it starts the app with hot-reload). Run it in the background. The app is ready when Vite prints the local URL on stdout. To verify the app compiled, check for `Watching for file changes` in stderr or look for a recent log entry via `./scripts/agent/logs`.
 
-EchoType has completed its core implementation through 13 milestones covering the full feature set from audio capture through distribution tooling. The app is functional and feature-complete for daily use.
+## Tech Stack
 
-- Product spec: [docs/product-spec.md](docs/product-spec.md)
-- Tech stack: [docs/tech-stack.md](docs/tech-stack.md)
-- Milestones: [docs/milestones.md](docs/milestones.md)
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Tauri 2 — Rust backend, webview frontend |
+| Frontend | Svelte 5, Tailwind CSS v4, Vite |
+| Local STT | whisper-rs (whisper.cpp bindings), fully offline |
+| Cloud STT | Groq, OpenAI, Deepgram — bring your own API keys |
+| Database | SQLite via rusqlite (bundled, zero-config) |
+| Audio | cpal (capture), nnnoiseless (denoise), rubato (resample), rodio (playback) |
+| Secrets | OS keychain via keyring crate — keys never touch disk |
+| Package manager | Bun |
 
-### Current focus
+## What It Does
 
-- Packaging signed installers for all platforms
-- Publishing to package managers (WinGet, Homebrew, Flatpak)
-- Community testing and bug fixes
-- Translation contributions
+**Core workflow:**
+- **Hold-to-dictate** — global hotkey works in any app, any platform
+- **Local transcription** — Whisper models run offline after a one-time download
+- **Cloud providers** — Groq, OpenAI, Deepgram with your API keys
+- **Text insertion** — direct input, clipboard+paste, or clipboard-only
 
-## Distribution
+**Power features:**
+- **Selection replacement** — dictate over selected text to replace it
+- **Edit before insert** — review transcription before committing
+- **Per-app profiles** — auto-switch settings based on focused application
+- **Custom vocabulary** — word lists for domain-specific correction
+- **Private mode** — skip history for sensitive sessions
 
-Releases are distributed through GitHub Releases with platform-specific packages:
+**Diagnostics and operations:**
+- **Latency profiling** — per-engine p50/p95 breakdowns so you can compare engines
+- **System tray** — runs quietly, no taskbar clutter
+- **Setup wizard** — guided first-run for mic, model download, and hotkey config
+- **CLI modes** — headless transcription, model management, diagnostics
 
-- **Windows**: `.msi` installer, WinGet package
-- **macOS**: `.dmg` disk image, Homebrew cask
-- **Linux**: AppImage, Flatpak, `.deb`, `.rpm`
+## Architecture — What's Not Obvious
+
+Things an AI (or human) needs to know that aren't apparent from the code alone:
+
+**Hotkey system:**
+- Uses `tauri-plugin-global-shortcut` for registration with press + release events
+- Windows uses a `WH_KEYBOARD_LL` hook to suppress letter key repeats during recording
+- Never use `SendInput` with `KEYEVENTF_KEYUP` — it triggers `ShortcutState::Released` and breaks push-to-talk
+
+**Windows platform specifics:**
+- `windows-sys` v0.59 uses `*mut c_void` for handles (HWND, HHOOK, HINSTANCE), not `isize`
+- `#![windows_subsystem = "windows"]` is always set in main.rs — not just release builds
+- Focus capture/restore uses `GetForegroundWindow`/`SetForegroundWindow`
+
+**Storage locations:**
+- Database: `%APPDATA%\com.echotype.app\echotype.db` (Windows), `~/Library/Application Support/` (macOS), `$XDG_DATA_HOME/` (Linux)
+- Logs: same base path under `logs/` — JSON-structured, machine-readable
+- Models: `~/models/` — downloaded Whisper binaries verified by SHA256
+
+**Build system:**
+- `.env` is sourced by dev/build scripts (sets Cargo bin PATH)
+- Vite builds three entry points: `index.html`, `edit-buffer.html`, `overlay.html`
+- Rust deps are vendored in `src-tauri/vendor/` but vendoring is currently disabled in `.cargo/config.toml`
+- Always use Bun, never npm — lockfile is `bun.lock`, `package-lock.json` is gitignored
+
+**CLI modes:**
+```bash
+echotype --stdout [--once]     # Pipe transcription to stdout
+echotype --list-models         # List installed Whisper models
+echotype --set-model <ID>      # Switch active model
+echotype --diagnostic          # Print diagnostic info
+echotype --log-level <level>   # trace | debug | info | warn | error
+```
+
+## Project Layout
+
+```
+src/                    Svelte 5 frontend
+  lib/components/       UI components (Settings, ModelManager, Dashboard, etc.)
+  lib/i18n/             Internationalization
+src-tauri/              Rust backend
+  src/audio/            Capture, denoise, resample, playback, mute
+  src/engine/           STT engines (whisper.rs + cloud/)
+  src/dictation/        Dictation state machine, streaming, vocabulary
+  src/models/           Model download, manifest, verification
+  src/db/               SQLite: migrations, history, metrics, settings, profiles
+  src/hotkey/           Global shortcut + Windows key suppression
+  src/output/           Text insertion + selection replacement
+  src/platform/         OS-specific: permissions, focus, window handling
+  src/security/         Keyring integration for API keys
+  vendor/               Vendored Rust crates
+scripts/agent/          Non-interactive agent commands
+docs/                   Product spec, tech stack, milestones, AI operator guide
+```
+
+## Docs
+
+- [AI Operator Guide](docs/ai-operator.md) — full agent workflow contract
+- [Product Spec](docs/product-spec.md) — feature specifications
+- [Tech Stack](docs/tech-stack.md) — architecture details
+- [Milestones](docs/milestones.md) — development history
 
 ## Contributing
 
-Contributions are welcome. Open an issue first for substantial changes so we can align on scope and direction.
+Contributions welcome. Open an issue first for substantial changes.
 
-AI-assisted and agent-authored contributions are encouraged when changes are reviewable and tested.
+AI-assisted and agent-authored contributions are encouraged — reviewable, tested, and well-explained commits only.
+
+## License
+
+MIT
