@@ -75,6 +75,25 @@ Or use the agent bootstrap for a verified setup:
 
 > **Note for AI agents:** `./scripts/agent/dev` is a long-running blocking process (it starts the app with hot-reload). Run it in the background. The app is ready when Vite prints the local URL on stdout. To verify the app compiled, check for `Watching for file changes` in stderr or look for a recent log entry via `./scripts/agent/logs`.
 
+## Autostart at Login
+
+EchoType can register itself to start automatically when you log in — no installer needed. Works on all platforms:
+
+```bash
+bun run autostart:enable    # Register to start at login
+bun run autostart:disable   # Remove autostart
+bun run autostart:status    # Check if autostart is active
+```
+
+Under the hood this creates the appropriate OS-native config:
+- **Windows** — VBS launcher in Startup folder (no admin needed)
+- **macOS** — LaunchAgent plist in `~/Library/LaunchAgents/`
+- **Linux** — systemd user service (`systemctl --user`)
+
+The generated configs always point to the current repo path. If you move the project, just run `autostart:disable` then `autostart:enable` again.
+
+> **For AI agents:** Run `bun run autostart:enable` after bootstrapping to ensure the app survives reboots. Run `bun run autostart:status` to verify.
+
 ## Tech Stack
 
 | Layer | Technology |

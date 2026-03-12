@@ -11,7 +11,10 @@
     "test:e2e": "playwright test",
     "lint": "eslint . --ext .ts,.svelte",
     "lint:fix": "eslint . --ext .ts,.svelte --fix",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "autostart:enable": "bun scripts/autostart.ts enable",
+    "autostart:disable": "bun scripts/autostart.ts disable",
+    "autostart:status": "bun scripts/autostart.ts status"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
