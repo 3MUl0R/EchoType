@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -39,8 +39,10 @@ const MIN_CHUNK_SECS: f64 = 0.1;
 /// Interval between audio chunk sends to the streaming engine.
 const CHUNK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
-/// Brief wait after closing the session to collect final results.
-const FINALIZE_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+/// Maximum time to wait for the STT provider to return final results after
+/// CloseStream.  This is a safety-net timeout — normally the consumer_done
+/// signal fires well before this.
+const FINALIZE_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(3000);
 
 /// Enhanced partial result emitted to the frontend.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -59,9 +61,17 @@ pub struct StreamingSessionHandle {
     cancel: Arc<AtomicBool>,
     session_id: String,
     accumulated_text: Arc<Mutex<String>>,
+    /// Text of the current in-progress segment (not yet marked `is_final` by
+    /// the provider).  Cleared each time a final result is accumulated.
+    /// Appended to accumulated_text at finalization so trailing speech that
+    /// Deepgram hasn't finalized is never lost.
+    pending_segment_text: Arc<Mutex<String>>,
     session: Arc<Mutex<Option<Box<dyn StreamingSttSession>>>>,
     /// Number of samples (at capture rate) the feeder has sent to the engine.
     feeder_capture_offset: Arc<AtomicU64>,
+    /// Fires when the partial consumer task has finished (channel closed by the
+    /// STT provider).  `finalize()` awaits this instead of a fixed sleep.
+    consumer_done: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 impl StreamingSessionHandle {
@@ -97,7 +107,10 @@ impl StreamingSessionHandle {
             }
         }
 
-        // Close the session to signal end-of-audio
+        // Close the session to signal end-of-audio.
+        // For providers like Deepgram this sends CloseStream, which tells
+        // the server to finish processing and return any remaining results
+        // before closing the connection.
         {
             let guard = self.session.lock().await;
             if let Some(ref session) = *guard {
@@ -106,13 +119,51 @@ impl StreamingSessionHandle {
             }
         }
 
-        // Wait briefly for final results to arrive via the partial consumer task
-        tokio::time::sleep(FINALIZE_DRAIN_TIMEOUT).await;
+        // Wait for the partial consumer to finish — it exits when the STT
+        // provider closes the channel after returning all final results.
+        // Fall back to a timeout so we never hang indefinitely.
+        let consumer_rx = self.consumer_done.lock().await.take();
+        if let Some(rx) = consumer_rx {
+            match tokio::time::timeout(FINALIZE_DRAIN_TIMEOUT, rx).await {
+                Ok(_) => {
+                    debug!("Partial consumer finished, all results collected");
+                }
+                Err(_) => {
+                    warn!(
+                        timeout_ms = FINALIZE_DRAIN_TIMEOUT.as_millis() as u64,
+                        "Timed out waiting for partial consumer to finish"
+                    );
+                }
+            }
+        } else {
+            // Fallback if consumer_done was already taken (shouldn't happen).
+            tokio::time::sleep(FINALIZE_DRAIN_TIMEOUT).await;
+        }
 
-        // Signal cancellation so background tasks wind down
+        // Signal cancellation so background tasks (feeder, keepalive) wind down
         self.cancel.store(true, Ordering::Release);
 
-        let text = self.accumulated_text.lock().await.clone();
+        let mut text = self.accumulated_text.lock().await.clone();
+
+        // Append any in-progress segment that was never marked `is_final`.
+        // This handles two cases:
+        //   1. Short utterances where Deepgram never sent a `speech_final`.
+        //   2. Longer dictations where the last segment was still interim
+        //      when the user released the hotkey.
+        let pending = self.pending_segment_text.lock().await.clone();
+        if !pending.is_empty() {
+            info!(
+                session_id = %self.session_id,
+                pending_len = pending.len(),
+                accumulated_len = text.len(),
+                "Appending pending interim segment to final transcript"
+            );
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(&pending);
+        }
+
         info!(
             session_id = %self.session_id,
             text_len = text.len(),
@@ -285,33 +336,26 @@ impl StreamingSessionController {
         let consumer_accumulated = accumulated_text.clone();
         let consumer_session_id = session_id.clone();
         let consumer_app = app.clone();
+        let (consumer_done_tx, consumer_done_rx) = oneshot::channel::<()>();
+        let pending_segment_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+        let consumer_pending = pending_segment_text.clone();
 
         tokio::spawn(async move {
             let mut partial_rx = partial_rx;
 
             debug!("Partial consumer task started");
 
-            loop {
-                if consumer_cancel.load(Ordering::Acquire) {
-                    debug!("Partial consumer: cancel flag set, stopping");
-                    break;
-                }
-
-                // Use a timeout so we can periodically check the cancel flag
-                let partial = tokio::select! {
-                    result = partial_rx.recv() => result,
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => continue,
-                };
-
-                let partial: StreamingPartial = match partial {
-                    Some(p) => p,
-                    None => {
-                        debug!("Partial consumer: channel closed, stopping");
-                        break;
-                    }
-                };
-
-                let current_seq = consumer_seq.fetch_add(1, Ordering::Relaxed);
+            /// Process a single partial result: emit to frontend, update
+            /// accumulated / pending state.
+            async fn process_partial(
+                partial: &StreamingPartial,
+                seq: &AtomicU64,
+                session_id: &str,
+                app: &AppHandle,
+                accumulated: &Mutex<String>,
+                pending: &Mutex<String>,
+            ) {
+                let current_seq = seq.fetch_add(1, Ordering::Relaxed);
 
                 let stability = if partial.is_final {
                     "high".to_string()
@@ -320,7 +364,7 @@ impl StreamingSessionController {
                 };
 
                 let result = SessionPartialResult {
-                    session_id: consumer_session_id.clone(),
+                    session_id: session_id.to_string(),
                     seq: current_seq,
                     text: partial.text.clone(),
                     is_final: partial.is_final,
@@ -335,24 +379,77 @@ impl StreamingSessionController {
                     "Emitting partial result"
                 );
 
-                if let Err(e) = consumer_app.emit("dictation:partial", &result) {
+                if let Err(e) = app.emit("dictation:partial", &result) {
                     warn!(%e, "Failed to emit dictation:partial event");
                 }
 
-                // Append finalized text to the accumulated transcript
-                if partial.is_final && !partial.text.is_empty() {
-                    let mut acc = consumer_accumulated.lock().await;
-                    if !acc.is_empty() {
-                        acc.push(' ');
+                if partial.is_final {
+                    if !partial.text.is_empty() {
+                        let mut acc = accumulated.lock().await;
+                        if !acc.is_empty() {
+                            acc.push(' ');
+                        }
+                        acc.push_str(&partial.text);
+                        debug!(
+                            accumulated_len = acc.len(),
+                            "Appended final segment to accumulated text"
+                        );
                     }
-                    acc.push_str(&partial.text);
-                    debug!(
-                        accumulated_len = acc.len(),
-                        "Appended final segment to accumulated text"
-                    );
+                    // Clear pending — this segment is now finalized
+                    *pending.lock().await = String::new();
+                } else if !partial.text.is_empty() {
+                    *pending.lock().await = partial.text.clone();
                 }
             }
 
+            // Main loop: wait for partials from the channel.  Also
+            // periodically check the cancel flag so we exit cleanly for
+            // providers that don't close the connection (e.g. OpenAI).
+            loop {
+                let partial = tokio::select! {
+                    result = partial_rx.recv() => {
+                        match result {
+                            Some(p) => p,
+                            None => {
+                                debug!("Partial consumer: channel closed");
+                                break;
+                            }
+                        }
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                        if consumer_cancel.load(Ordering::Acquire) {
+                            debug!("Partial consumer: cancel flag set, draining remaining messages");
+                            // Drain any messages already buffered in the channel.
+                            while let Ok(p) = partial_rx.try_recv() {
+                                process_partial(
+                                    &p,
+                                    &consumer_seq,
+                                    &consumer_session_id,
+                                    &consumer_app,
+                                    &consumer_accumulated,
+                                    &consumer_pending,
+                                )
+                                .await;
+                            }
+                            break;
+                        }
+                        continue;
+                    }
+                };
+
+                process_partial(
+                    &partial,
+                    &consumer_seq,
+                    &consumer_session_id,
+                    &consumer_app,
+                    &consumer_accumulated,
+                    &consumer_pending,
+                )
+                .await;
+            }
+
+            // Signal that we've drained all results
+            let _ = consumer_done_tx.send(());
             info!("Partial consumer task ended");
         });
 
@@ -367,8 +464,10 @@ impl StreamingSessionController {
             cancel,
             session_id,
             accumulated_text,
+            pending_segment_text,
             session: stt_session,
             feeder_capture_offset,
+            consumer_done: Mutex::new(Some(consumer_done_rx)),
         })
     }
 }

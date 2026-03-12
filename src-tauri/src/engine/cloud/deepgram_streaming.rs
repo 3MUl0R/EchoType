@@ -116,14 +116,16 @@ impl StreamingSttEngine for DeepgramStreamingEngine {
         let sink = Arc::new(Mutex::new(write));
 
         // --- Reader task: parse incoming JSON frames into StreamingPartial ---
+        // The reader runs until the server closes the connection (after processing
+        // CloseStream) or the partial channel is dropped.  It does NOT check the
+        // `closed` flag in its main loop — that flag is set at the *start* of
+        // close(), before CloseStream is even sent, so checking it would cause
+        // the reader to exit before collecting Deepgram's final results.
         let closed_reader = Arc::clone(&closed);
         let engine_name = self.display_name.clone();
         tokio::spawn(async move {
             let mut read = read;
             while let Some(msg_result) = read.next().await {
-                if closed_reader.load(Ordering::Relaxed) {
-                    break;
-                }
                 match msg_result {
                     Ok(Message::Text(text)) => {
                         match parse_deepgram_message(&text) {
@@ -149,6 +151,7 @@ impl StreamingSttEngine for DeepgramStreamingEngine {
                         // Binary/ping/pong — ignore.
                     }
                     Err(e) => {
+                        // Only log as error if we didn't intentionally close.
                         if !closed_reader.load(Ordering::Relaxed) {
                             error!(engine = %engine_name, error = %e, "WebSocket read error");
                         }
@@ -263,17 +266,14 @@ impl StreamingSttSession for DeepgramStreamingSession {
         let mut guard = self.sink.lock().await;
 
         // Send CloseStream to let Deepgram finalize any pending transcription.
+        // Do NOT send a WebSocket close frame here — Deepgram needs to process
+        // the remaining audio and return final results before the connection
+        // is terminated. The server will close the connection after it's done.
         if let Err(e) = guard.send(close_msg).await {
             warn!(error = %e, "failed to send CloseStream message");
         }
 
-        // Follow up with a WebSocket close frame.
-        if let Err(e) = guard.close().await {
-            // Not fatal — the server may have already closed.
-            debug!(error = %e, "WebSocket close frame send failed (may be expected)");
-        }
-
-        info!("Deepgram streaming session closed");
+        info!("Deepgram streaming session: CloseStream sent, waiting for server to finalize");
         Ok(())
     }
 }

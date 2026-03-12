@@ -54,6 +54,9 @@ impl CaptureSession {
 
     /// Stop capturing and return the recorded audio buffer.
     pub fn stop(self) -> AudioBuffer {
+        // Brief drain period to let the hardware callback deliver its final
+        // buffer.  Without this, fast key-up can shave off the last ~10-50 ms.
+        std::thread::sleep(std::time::Duration::from_millis(50));
         drop(self.stream); // Stops the stream
 
         if self.had_error.load(Ordering::Relaxed) {

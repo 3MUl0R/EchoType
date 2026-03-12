@@ -259,23 +259,12 @@ impl StreamingSttSession for OpenAiStreamingSession {
             warn!("Failed to send input_audio_buffer.commit: {e}");
         }
 
-        // Drop the lock so the reader task can still receive the completion
-        // event. We give the server time to finalize and send the completed
-        // transcript before tearing down the connection.
-        drop(ws);
-
-        // Wait for the server to process the commit and send the completion
-        // event. The reader_task will receive it and forward via the channel.
-        // 2 seconds is generous — typical OpenAI response is <500ms.
-        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-
-        // Now close the WebSocket.
-        let mut ws = self.write.lock().await;
-        if let Err(e) = ws.close().await {
-            debug!("WebSocket close frame error (non-fatal): {e}");
-        }
-
-        info!("OpenAI Realtime streaming session closed");
+        // Do NOT close the WebSocket here.  The session controller waits for
+        // the partial consumer to finish (consumer_done signal) before setting
+        // the cancel flag.  The reader task needs the connection alive to
+        // receive the `completed` event from OpenAI.  The WebSocket will be
+        // torn down when the session handle is dropped after finalization.
+        info!("OpenAI Realtime: commit sent, waiting for server to finalize");
         Ok(())
     }
 }
@@ -289,6 +278,11 @@ async fn reader_task(
     tx: mpsc::UnboundedSender<StreamingPartial>,
     closed: Arc<AtomicBool>,
 ) {
+    // OpenAI sends transcription as incremental `delta` fragments, not full
+    // snapshots.  We accumulate them here so the session consumer always
+    // receives the complete in-progress text (matching Deepgram's behavior).
+    let mut running_transcript = String::new();
+
     while let Some(result) = read.next().await {
         let msg = match result {
             Ok(m) => m,
@@ -323,8 +317,9 @@ async fn reader_task(
             "conversation.item.input_audio_transcription.delta" => {
                 if let Some(delta) = json["delta"].as_str() {
                     if !delta.is_empty() {
+                        running_transcript.push_str(delta);
                         let partial = StreamingPartial {
-                            text: delta.to_string(),
+                            text: running_transcript.clone(),
                             is_final: false,
                             confidence: None,
                         };
@@ -337,6 +332,8 @@ async fn reader_task(
             }
             "conversation.item.input_audio_transcription.completed" => {
                 let transcript = json["transcript"].as_str().unwrap_or("").to_string();
+                // Reset running transcript for the next utterance segment.
+                running_transcript.clear();
                 let partial = StreamingPartial {
                     text: transcript,
                     is_final: true,
