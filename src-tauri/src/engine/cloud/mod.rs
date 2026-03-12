@@ -1,6 +1,8 @@
 pub mod deepgram;
+pub mod deepgram_streaming;
 pub mod groq;
 pub mod openai;
+pub mod openai_streaming;
 
 use std::time::Duration;
 

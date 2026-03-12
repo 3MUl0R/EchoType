@@ -30,6 +30,9 @@ pub mod keys {
     pub const AUTO_SUBMIT_KEY: &str = "auto_submit_key";
     pub const AUTO_SUBMIT_DELAY_MS: &str = "auto_submit_delay_ms";
     pub const STREAMING_ENABLED: &str = "streaming_enabled";
+    pub const DICTATION_ROUTE: &str = "dictation_route";
+    pub const STREAMING_PREVIEW_ENABLED: &str = "streaming_preview_enabled";
+    pub const STREAMING_PREVIEW_SURFACE: &str = "streaming_preview_surface";
     pub const EDIT_BUFFER_ENABLED: &str = "edit_buffer_enabled";
     pub const CUSTOM_WORDS: &str = "custom_words";
     pub const PRIVATE_MODE_ENABLED: &str = "private_mode_enabled";
@@ -74,6 +77,9 @@ pub struct AllSettings {
     pub auto_submit_key: String,
     pub auto_submit_delay_ms: u64,
     pub streaming_enabled: bool,
+    pub dictation_route: String,
+    pub streaming_preview_enabled: bool,
+    pub streaming_preview_surface: String,
     pub edit_buffer_enabled: bool,
     pub custom_words: Vec<String>,
     pub private_mode_enabled: bool,
@@ -122,6 +128,9 @@ fn default_for(key: &str) -> Option<String> {
         keys::AUTO_SUBMIT_KEY => "\"enter\"",
         keys::AUTO_SUBMIT_DELAY_MS => "100",
         keys::STREAMING_ENABLED => "true",
+        keys::DICTATION_ROUTE => "\"auto\"",
+        keys::STREAMING_PREVIEW_ENABLED => "false",
+        keys::STREAMING_PREVIEW_SURFACE => "\"overlay\"",
         keys::EDIT_BUFFER_ENABLED => "false",
         keys::CUSTOM_WORDS => "[]",
         keys::PRIVATE_MODE_ENABLED => "false",
@@ -217,6 +226,9 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         auto_submit_key: get_typed(conn, keys::AUTO_SUBMIT_KEY)?,
         auto_submit_delay_ms: get_typed(conn, keys::AUTO_SUBMIT_DELAY_MS)?,
         streaming_enabled: get_typed(conn, keys::STREAMING_ENABLED)?,
+        dictation_route: get_typed(conn, keys::DICTATION_ROUTE)?,
+        streaming_preview_enabled: get_typed(conn, keys::STREAMING_PREVIEW_ENABLED)?,
+        streaming_preview_surface: get_typed(conn, keys::STREAMING_PREVIEW_SURFACE)?,
         edit_buffer_enabled: get_typed(conn, keys::EDIT_BUFFER_ENABLED)?,
         custom_words: get_typed(conn, keys::CUSTOM_WORDS).unwrap_or_default(),
         private_mode_enabled: get_typed(conn, keys::PRIVATE_MODE_ENABLED)?,
@@ -318,6 +330,9 @@ mod tests {
             keys::AUTO_SUBMIT_KEY,
             keys::AUTO_SUBMIT_DELAY_MS,
             keys::STREAMING_ENABLED,
+            keys::DICTATION_ROUTE,
+            keys::STREAMING_PREVIEW_ENABLED,
+            keys::STREAMING_PREVIEW_SURFACE,
             keys::EDIT_BUFFER_ENABLED,
             keys::CUSTOM_WORDS,
             keys::PRIVATE_MODE_ENABLED,
@@ -399,6 +414,9 @@ mod tests {
         assert_eq!(all.auto_submit_key, "enter");
         assert_eq!(all.auto_submit_delay_ms, 100);
         assert!(all.streaming_enabled);
+        assert_eq!(all.dictation_route, "auto");
+        assert!(!all.streaming_preview_enabled);
+        assert_eq!(all.streaming_preview_surface, "overlay");
         assert!(!all.edit_buffer_enabled);
         assert!(all.custom_words.is_empty());
         assert!(!all.private_mode_enabled);

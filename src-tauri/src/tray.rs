@@ -137,6 +137,7 @@ fn update_icon(app: &AppHandle, state: &DictationState) -> Result<(), String> {
         DictationState::Recording => "EchoType — Recording",
         DictationState::Transcribing => "EchoType — Transcribing",
         DictationState::Editing => "EchoType — Editing",
+        DictationState::Finalizing => "EchoType — Finalizing",
         DictationState::Inserting => "EchoType — Inserting",
     };
     tray.set_tooltip(Some(tooltip))
@@ -151,6 +152,7 @@ fn make_icon(state: &DictationState) -> Image<'static> {
         DictationState::Idle => (128, 128, 128),        // Gray
         DictationState::Recording => (220, 50, 50),     // Red
         DictationState::Transcribing => (50, 130, 220), // Blue
+        DictationState::Finalizing => (80, 160, 220),   // Light blue
         DictationState::Editing => (220, 180, 50),      // Yellow
         DictationState::Inserting => (50, 180, 80),     // Green
     };
