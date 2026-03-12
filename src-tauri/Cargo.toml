@@ -43,6 +43,12 @@ tauri-plugin-global-shortcut = "2"
 enigo = "0.3"
 arboard = { version = "3", features = ["wayland-data-control"] }
 
+# WebSocket streaming STT
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
 # Model downloads
 reqwest = { version = "0.13", features = ["stream", "rustls", "multipart"], default-features = false }
 sha2 = "0.10"

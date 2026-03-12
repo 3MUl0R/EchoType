@@ -5,6 +5,7 @@ pub mod whisper;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use tokio::sync::mpsc;
 
 /// Errors from STT engine operations.
 #[derive(Debug, thiserror::Error)]
@@ -57,11 +58,64 @@ pub struct ModelInfo {
     pub file_size_bytes: u64,
 }
 
-/// Core STT engine abstraction.
+/// Core STT engine abstraction (batch mode).
 #[async_trait]
 pub trait SttEngine: Send + Sync {
     fn name(&self) -> &str;
     async fn transcribe(&self, request: TranscribeRequest) -> Result<Transcription, EngineError>;
+    fn supported_languages(&self) -> Vec<Language>;
+    fn model_info(&self) -> Option<ModelInfo>;
+}
+
+/// A partial transcription result from a streaming engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingPartial {
+    /// Incremental or accumulated transcript text.
+    pub text: String,
+    /// True when the engine considers this segment finalized.
+    pub is_final: bool,
+    /// Confidence score if available (0.0 - 1.0).
+    pub confidence: Option<f32>,
+}
+
+/// Configuration for starting a streaming STT session.
+#[derive(Debug, Clone)]
+pub struct StreamingConfig {
+    /// Audio sample rate being sent (e.g. 16000 for Deepgram, 24000 for OpenAI).
+    pub sample_rate: u32,
+    /// Number of audio channels (typically 1 = mono).
+    pub channels: u16,
+    /// Optional language hint.
+    pub language: Option<Language>,
+}
+
+/// Handle to an active streaming STT session.
+/// Send audio chunks and receive partial results through channels.
+#[async_trait]
+pub trait StreamingSttSession: Send + Sync {
+    /// Send a chunk of PCM f32 audio samples to the engine.
+    async fn send_audio(&self, samples: &[f32]) -> Result<(), EngineError>;
+
+    /// Signal that no more audio will be sent. The engine should finalize.
+    async fn close(&self) -> Result<(), EngineError>;
+}
+
+/// Streaming STT engine abstraction.
+/// Engines that support real-time audio streaming implement this trait.
+#[async_trait]
+pub trait StreamingSttEngine: Send + Sync {
+    fn name(&self) -> &str;
+
+    /// Whether this engine supports true network streaming.
+    fn supports_streaming(&self) -> bool;
+
+    /// Start a streaming session. Returns a session handle and a receiver
+    /// for partial transcription results.
+    async fn start_stream(
+        &self,
+        config: StreamingConfig,
+    ) -> Result<(Box<dyn StreamingSttSession>, mpsc::UnboundedReceiver<StreamingPartial>), EngineError>;
+
     fn supported_languages(&self) -> Vec<Language>;
     fn model_info(&self) -> Option<ModelInfo>;
 }

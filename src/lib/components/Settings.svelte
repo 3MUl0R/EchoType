@@ -37,6 +37,7 @@
     auto_submit_key: string;
     auto_submit_delay_ms: number;
     streaming_enabled: boolean;
+    dictation_route: string;
     edit_buffer_enabled: boolean;
     custom_words: string[];
     private_mode_enabled: boolean;
@@ -962,6 +963,29 @@
               {cloudProviders.find((p) => p.id === settings?.cloud_provider)?.name ?? settings.cloud_provider}
               / {currentModel(settings.cloud_provider)}
             </span>
+          </div>
+        {/if}
+
+        {#if settings.engine_type === "cloud" && (settings.cloud_provider === "deepgram" || settings.cloud_provider === "openai")}
+          <div class="flex items-center justify-between">
+            <div>
+              <label for="dictation-route" class="text-sm">{t("settings.streaming_mode")}</label>
+              <p class="text-xs text-text-muted">{t("settings.streaming_mode_hint")}</p>
+            </div>
+            <select
+              id="dictation-route"
+              value={settings.dictation_route}
+              onchange={(e) =>
+                saveSetting(
+                  "dictation_route",
+                  (e.target as HTMLSelectElement).value,
+                )}
+              class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+            >
+              <option value="auto">{t("settings.route_auto")}</option>
+              <option value="streaming">{t("settings.route_streaming")}</option>
+              <option value="classic">{t("settings.route_classic")}</option>
+            </select>
           </div>
         {/if}
 
