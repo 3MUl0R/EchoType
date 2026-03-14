@@ -43,6 +43,7 @@ pnpm-lock.yaml
 # Generated autostart files
 # -----------------------------------------------------------------------------
 /scripts/start-hidden.vbs
+/scripts/restart-hidden.vbs
 
 # -----------------------------------------------------------------------------
 # Environment files

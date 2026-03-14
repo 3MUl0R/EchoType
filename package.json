@@ -12,6 +12,7 @@
     "lint": "eslint . --ext .ts,.svelte",
     "lint:fix": "eslint . --ext .ts,.svelte --fix",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "restart": "bun scripts/restart.ts",
     "autostart:enable": "bun scripts/autostart.ts enable",
     "autostart:disable": "bun scripts/autostart.ts disable",
     "autostart:status": "bun scripts/autostart.ts status"
