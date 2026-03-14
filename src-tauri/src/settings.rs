@@ -33,6 +33,7 @@ pub mod keys {
     pub const DICTATION_ROUTE: &str = "dictation_route";
     pub const STREAMING_PREVIEW_ENABLED: &str = "streaming_preview_enabled";
     pub const STREAMING_PREVIEW_SURFACE: &str = "streaming_preview_surface";
+    pub const STREAMING_ENDPOINT_MS: &str = "streaming_endpoint_ms";
     pub const EDIT_BUFFER_ENABLED: &str = "edit_buffer_enabled";
     pub const CUSTOM_WORDS: &str = "custom_words";
     pub const PRIVATE_MODE_ENABLED: &str = "private_mode_enabled";
@@ -80,6 +81,7 @@ pub struct AllSettings {
     pub dictation_route: String,
     pub streaming_preview_enabled: bool,
     pub streaming_preview_surface: String,
+    pub streaming_endpoint_ms: u64,
     pub edit_buffer_enabled: bool,
     pub custom_words: Vec<String>,
     pub private_mode_enabled: bool,
@@ -131,6 +133,7 @@ fn default_for(key: &str) -> Option<String> {
         keys::DICTATION_ROUTE => "\"auto\"",
         keys::STREAMING_PREVIEW_ENABLED => "false",
         keys::STREAMING_PREVIEW_SURFACE => "\"overlay\"",
+        keys::STREAMING_ENDPOINT_MS => "1500",
         keys::EDIT_BUFFER_ENABLED => "false",
         keys::CUSTOM_WORDS => "[]",
         keys::PRIVATE_MODE_ENABLED => "false",
@@ -229,6 +232,7 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         dictation_route: get_typed(conn, keys::DICTATION_ROUTE)?,
         streaming_preview_enabled: get_typed(conn, keys::STREAMING_PREVIEW_ENABLED)?,
         streaming_preview_surface: get_typed(conn, keys::STREAMING_PREVIEW_SURFACE)?,
+        streaming_endpoint_ms: get_typed(conn, keys::STREAMING_ENDPOINT_MS)?,
         edit_buffer_enabled: get_typed(conn, keys::EDIT_BUFFER_ENABLED)?,
         custom_words: get_typed(conn, keys::CUSTOM_WORDS).unwrap_or_default(),
         private_mode_enabled: get_typed(conn, keys::PRIVATE_MODE_ENABLED)?,

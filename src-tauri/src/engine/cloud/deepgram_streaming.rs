@@ -55,8 +55,9 @@ impl DeepgramStreamingEngine {
     fn build_ws_url(&self, config: &StreamingConfig) -> String {
         let mut url = format!(
             "{WS_ENDPOINT}?model={}&encoding=linear16&sample_rate={}&channels={}\
-             &interim_results=true&punctuate=true&smart_format=true",
-            self.model, config.sample_rate, config.channels,
+             &interim_results=true&punctuate=true&smart_format=true\
+             &endpointing={}",
+            self.model, config.sample_rate, config.channels, config.endpoint_ms,
         );
         if let Some(ref lang) = config.language {
             // Only append safe language codes
@@ -510,6 +511,7 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
             language: None,
+            endpoint_ms: 1500,
         };
         let url = engine.build_ws_url(&config);
         assert!(url.starts_with("wss://api.deepgram.com/v1/listen?"));
@@ -520,6 +522,7 @@ mod tests {
         assert!(url.contains("interim_results=true"));
         assert!(url.contains("punctuate=true"));
         assert!(url.contains("smart_format=true"));
+        assert!(url.contains("endpointing=1500"));
         assert!(!url.contains("language="));
     }
 
@@ -530,6 +533,7 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
             language: Some(Language("es".to_string())),
+            endpoint_ms: 1500,
         };
         let url = engine.build_ws_url(&config);
         assert!(url.contains("language=es"));

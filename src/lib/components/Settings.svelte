@@ -38,6 +38,7 @@
     auto_submit_delay_ms: number;
     streaming_enabled: boolean;
     dictation_route: string;
+    streaming_endpoint_ms: number;
     edit_buffer_enabled: boolean;
     custom_words: string[];
     private_mode_enabled: boolean;
@@ -68,7 +69,7 @@
     created_at: string;
   }
 
-  type SettingsSection = "dictation" | "engine" | "microphone" | "feedback" | "theme" | "history" | "cloud" | "profiles" | "vocabulary" | "advanced" | "diagnostics";
+  type SettingsSection = "dictation" | "engine" | "microphone" | "feedback" | "theme" | "history" | "cloud" | "profiles" | "vocabulary" | "advanced" | "diagnostics" | "permissions";
   let activeSection: SettingsSection = $state("dictation");
 
   const sectionNav: { id: SettingsSection; labelKey: StringKeys }[] = [
@@ -82,6 +83,7 @@
     { id: "profiles", labelKey: "settings.section_profiles" },
     { id: "vocabulary", labelKey: "settings.section_vocabulary" },
     { id: "advanced", labelKey: "settings.section_advanced" },
+    { id: "permissions", labelKey: "permissions.title" },
     { id: "diagnostics", labelKey: "settings.diagnostics" },
   ];
 
@@ -606,7 +608,9 @@
       </p>
     {/if}
 
-    <PermissionGuide />
+    {#if activeSection === "permissions"}
+      <PermissionGuide />
+    {/if}
 
     {#if settings}
       {#if activeSection === "dictation"}
@@ -880,6 +884,30 @@
           />
         </div>
 
+        {#if settings.engine_type === "cloud" && (settings.cloud_provider === "deepgram" || settings.cloud_provider === "openai") && settings.dictation_route !== "classic"}
+          <div class="flex items-center justify-between">
+            <div>
+              <label for="pause-sensitivity" class="text-sm">{t("settings.pause_sensitivity")}</label>
+              <p class="text-xs text-text-muted">{t("settings.pause_sensitivity_hint")}</p>
+            </div>
+            <select
+              id="pause-sensitivity"
+              value={settings.streaming_endpoint_ms}
+              onchange={(e) =>
+                saveSetting(
+                  "streaming_endpoint_ms",
+                  parseInt((e.target as HTMLSelectElement).value, 10),
+                )}
+              class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+            >
+              <option value={500}>{t("settings.pause_short")}</option>
+              <option value={1500}>{t("settings.pause_medium")}</option>
+              <option value={3000}>{t("settings.pause_long")}</option>
+              <option value={5000}>{t("settings.pause_very_long")}</option>
+            </select>
+          </div>
+        {/if}
+
         <div class="flex items-center justify-between">
           <label for="edit-buffer" class="text-sm"
             >{t("settings.edit_buffer")}</label
@@ -987,6 +1015,7 @@
               <option value="classic">{t("settings.route_classic")}</option>
             </select>
           </div>
+
         {/if}
 
         <div class="flex items-center justify-between">

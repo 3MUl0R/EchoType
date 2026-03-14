@@ -87,6 +87,10 @@ pub struct StreamingConfig {
     pub channels: u16,
     /// Optional language hint.
     pub language: Option<Language>,
+    /// How long the provider should wait (ms) after silence before finalizing
+    /// a segment. Higher values = fewer sentence breaks on natural pauses.
+    /// Maps to Deepgram `endpointing` and OpenAI `silence_duration_ms`.
+    pub endpoint_ms: u64,
 }
 
 /// Handle to an active streaming STT session.

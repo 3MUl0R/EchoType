@@ -124,7 +124,7 @@ impl StreamingSttEngine for OpenAiStreamingEngine {
                 "turn_detection": {
                     "type": "server_vad",
                     "threshold": 0.5,
-                    "silence_duration_ms": 500
+                    "silence_duration_ms": config.endpoint_ms
                 },
                 "input_audio_noise_reduction": {
                     "type": "near_field"

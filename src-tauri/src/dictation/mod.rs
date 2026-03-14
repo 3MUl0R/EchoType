@@ -137,6 +137,7 @@ impl DictationManager {
             suppression_level,
             mute_audio,
             dictation_route,
+            endpoint_ms,
         ) = {
             let conn = app_state.db.lock().await;
             let device = crate::settings::get_typed::<String>(
@@ -173,6 +174,11 @@ impl DictationManager {
                 crate::settings::keys::DICTATION_ROUTE,
             )
             .unwrap_or_else(|_| "classic".to_string());
+            let ep_ms = crate::settings::get_typed::<u64>(
+                &conn,
+                crate::settings::keys::STREAMING_ENDPOINT_MS,
+            )
+            .unwrap_or(1500);
             (
                 device,
                 fallback,
@@ -182,6 +188,7 @@ impl DictationManager {
                 SuppressionLevel::from_str(&level_str),
                 mute,
                 route,
+                ep_ms,
             )
         };
 
@@ -233,6 +240,7 @@ impl DictationManager {
                                 sample_rate: 16000,
                                 channels: 1,
                                 language: None,
+                                endpoint_ms,
                             };
                             match controller
                                 .run(
