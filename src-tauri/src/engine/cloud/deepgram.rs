@@ -134,6 +134,7 @@ impl SttEngine for DeepgramEngine {
             text,
             language: language.or_else(|| Some(Language("en".to_string()))),
             duration_ms,
+            words: None,
         })
     }
 

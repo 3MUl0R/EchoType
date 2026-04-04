@@ -1,3 +1,4 @@
+pub mod session;
 pub mod streaming;
 pub mod vocabulary;
 
@@ -11,7 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::audio::denoise::SuppressionLevel;
 use crate::audio::{capture, feedback, pipeline, AudioBuffer};
-use crate::engine::TranscribeRequest;
+use crate::engine::{StreamingConfig, StreamingSttEngine, TranscribeRequest};
 use crate::output;
 use crate::platform::focus;
 use crate::AppState;
@@ -26,6 +27,7 @@ pub enum DictationState {
     Idle,
     Recording,
     Transcribing,
+    Finalizing,
     Editing,
     Inserting,
 }
@@ -125,7 +127,7 @@ impl DictationManager {
         // TODO: revisit with a safer detection method (e.g. accessibility APIs).
         *app_state.selection_state.lock().await = output::selection::SelectionState::NoSelection;
 
-        // Read mic, feedback, and streaming settings together
+        // Read mic, feedback, streaming, and route settings together
         let (
             selected_device,
             auto_fallback,
@@ -134,6 +136,8 @@ impl DictationManager {
             streaming_enabled,
             suppression_level,
             mute_audio,
+            dictation_route,
+            endpoint_ms,
         ) = {
             let conn = app_state.db.lock().await;
             let device = crate::settings::get_typed::<String>(
@@ -165,6 +169,16 @@ impl DictationManager {
             let mute =
                 crate::settings::get_typed::<bool>(&conn, crate::settings::keys::MUTE_SYSTEM_AUDIO)
                     .unwrap_or(false);
+            let route = crate::settings::get_typed::<String>(
+                &conn,
+                crate::settings::keys::DICTATION_ROUTE,
+            )
+            .unwrap_or_else(|_| "classic".to_string());
+            let ep_ms = crate::settings::get_typed::<u64>(
+                &conn,
+                crate::settings::keys::STREAMING_ENDPOINT_MS,
+            )
+            .unwrap_or(1500);
             (
                 device,
                 fallback,
@@ -173,6 +187,8 @@ impl DictationManager {
                 stream,
                 SuppressionLevel::from_str(&level_str),
                 mute,
+                route,
+                ep_ms,
             )
         };
 
@@ -206,8 +222,73 @@ impl DictationManager {
                     },
                 );
 
-                // Start streaming if enabled
-                if streaming_enabled {
+                // Resolve the effective dictation route.
+                // "auto" picks streaming when the active cloud provider supports it.
+                let effective_route = resolve_dictation_route(
+                    &dictation_route,
+                    &app_state,
+                )
+                .await;
+
+                // Start streaming based on effective route
+                if effective_route == "streaming" {
+                    // Streaming route: use native WebSocket streaming engines
+                    match create_streaming_engine(app).await {
+                        Ok(engine) => {
+                            let controller = session::StreamingSessionController::new();
+                            let config = StreamingConfig {
+                                sample_rate: 16000,
+                                channels: 1,
+                                language: None,
+                                endpoint_ms,
+                            };
+                            match controller
+                                .run(
+                                    app.clone(),
+                                    app_state.capture_session.clone(),
+                                    engine,
+                                    config,
+                                )
+                                .await
+                            {
+                                Ok(handle) => {
+                                    info!(
+                                        session_id = handle.session_id(),
+                                        "Streaming session started"
+                                    );
+                                    *app_state.streaming_session_handle.lock().await = Some(handle);
+                                }
+                                Err(e) => {
+                                    warn!(%e, "Failed to start streaming session, falling back to classic polling");
+                                    // Fall back to classic polling
+                                    if streaming_enabled {
+                                        let handle = streaming::start_streaming(
+                                            app.clone(),
+                                            app_state.capture_session.clone(),
+                                            app_state.engine_manager.clone(),
+                                            suppression_level,
+                                        );
+                                        *app_state.streaming_handle.lock().await = Some(handle);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(%e, "No streaming engine available, falling back to classic polling");
+                            // Fall back to classic polling
+                            if streaming_enabled {
+                                let handle = streaming::start_streaming(
+                                    app.clone(),
+                                    app_state.capture_session.clone(),
+                                    app_state.engine_manager.clone(),
+                                    suppression_level,
+                                );
+                                *app_state.streaming_handle.lock().await = Some(handle);
+                            }
+                        }
+                    }
+                } else if streaming_enabled {
+                    // Classic route with polling-based streaming
                     let handle = streaming::start_streaming(
                         app.clone(),
                         app_state.capture_session.clone(),
@@ -217,7 +298,7 @@ impl DictationManager {
                     *app_state.streaming_handle.lock().await = Some(handle);
                 }
 
-                info!("Dictation recording started");
+                info!(route = %effective_route, configured = %dictation_route, "Dictation recording started");
             }
             Err(e) => {
                 error!(%e, "Failed to start capture for dictation");
@@ -252,8 +333,11 @@ impl DictationManager {
             }
         }
 
-        // Cancel streaming
+        // Check for active streaming session (new route)
         let app_state: tauri::State<'_, AppState> = app.state();
+        let streaming_session = app_state.streaming_session_handle.lock().await.take();
+
+        // Cancel classic polling streaming
         if let Some(handle) = app_state.streaming_handle.lock().await.take() {
             handle.cancel();
         }
@@ -271,6 +355,10 @@ impl DictationManager {
             Some(s) => s,
             None => {
                 warn!("No capture session found on dictation stop");
+                // Clean up streaming session if present
+                if let Some(sh) = streaming_session {
+                    sh.cancel();
+                }
                 *self.state.lock().await = DictationState::Idle;
                 emit_state(
                     app,
@@ -293,6 +381,9 @@ impl DictationManager {
                 duration = buffer.duration_secs(),
                 "Recording too short, skipping transcription"
             );
+            if let Some(sh) = streaming_session {
+                sh.cancel();
+            }
             *self.state.lock().await = DictationState::Idle;
             emit_state(
                 app,
@@ -305,6 +396,273 @@ impl DictationManager {
             );
             return;
         }
+
+        // If we have a streaming session, use the streaming finalization path
+        if let Some(session_handle) = streaming_session {
+            *self.state.lock().await = DictationState::Finalizing;
+            emit_state(
+                app,
+                &DictationEvent {
+                    state: DictationState::Finalizing,
+                    text: None,
+                    error: None,
+                    latency_ms: None,
+                },
+            );
+
+            // Play stop chime
+            play_feedback_chime(&app_state, feedback::Chime::Stop).await;
+
+            // Store last audio
+            *app_state.last_audio.lock().await = Some(buffer.clone());
+
+            // Finalize the streaming session in background
+            let state_ref = self.state.clone();
+            let app_handle = app.clone();
+            let focus_target = app_state.focus_target.lock().await.clone();
+            let selection = app_state.selection_state.lock().await.clone();
+            let db = app_state.db.clone();
+            let audio_for_history = buffer.clone();
+            let profile_id = *app_state.active_profile_id.lock().await;
+            let pending_edit_arc = app_state.pending_edit.clone();
+
+            // Only resample and send the tail that the feeder hasn't sent yet.
+            // The feeder tracks its progress at the capture sample rate.
+            let tail_audio_16k = {
+                let fed_offset = session_handle.feeder_capture_offset();
+                let capture_rate = buffer.sample_rate;
+                let tail = if fed_offset < buffer.samples.len() {
+                    &buffer.samples[fed_offset..]
+                } else {
+                    &[] as &[f32]
+                };
+                debug!(
+                    fed_offset = fed_offset,
+                    total_samples = buffer.samples.len(),
+                    tail_samples = tail.len(),
+                    capture_rate = capture_rate,
+                    "Computing unfed audio tail for finalization"
+                );
+                if tail.is_empty() {
+                    Vec::new()
+                } else if capture_rate != 16000 {
+                    session::resample_chunk(tail, capture_rate, 16000)
+                } else {
+                    tail.to_vec()
+                }
+            };
+
+            tokio::spawn(async move {
+                let finalize_start = Instant::now();
+
+                // Finalize: send only the unfed audio tail and close the engine session.
+                // The feeder already sent most of the audio during recording; we only
+                // need to flush the last chunk that didn't meet the minimum size threshold.
+                let final_audio = if tail_audio_16k.is_empty() {
+                    None
+                } else {
+                    Some(tail_audio_16k.as_slice())
+                };
+                let streaming_text = match session_handle.finalize(final_audio).await {
+                    Ok(text) => text,
+                    Err(e) => {
+                        error!(%e, "Streaming session finalization failed");
+                        // On failure, emit error and return to idle
+                        *state_ref.lock().await = DictationState::Idle;
+                        emit_state(
+                            &app_handle,
+                            &DictationEvent {
+                                state: DictationState::Idle,
+                                text: None,
+                                error: Some(format!("Streaming finalization failed: {e}")),
+                                latency_ms: None,
+                            },
+                        );
+                        return;
+                    }
+                };
+
+                if streaming_text.is_empty() {
+                    info!("Streaming session produced no text");
+                    *state_ref.lock().await = DictationState::Idle;
+                    emit_state(
+                        &app_handle,
+                        &DictationEvent {
+                            state: DictationState::Idle,
+                            text: None,
+                            error: None,
+                            latency_ms: None,
+                        },
+                    );
+                    return;
+                }
+
+                // Read settings for postprocessing (profile-aware)
+                let pid = profile_id;
+                let (
+                    dictation_mode,
+                    auto_punctuate,
+                    output_method,
+                    auto_submit_enabled,
+                    auto_submit_key,
+                    auto_submit_delay_ms,
+                    edit_buffer_enabled,
+                    custom_words,
+                ) = {
+                    let conn = db.lock().await;
+                    let mode = crate::settings::get_typed_with_profile::<String>(
+                        &conn,
+                        crate::settings::keys::DICTATION_MODE,
+                        pid,
+                    )
+                    .unwrap_or_else(|_| "formatted".to_string());
+                    let punctuate = crate::settings::get_typed_with_profile::<bool>(
+                        &conn,
+                        crate::settings::keys::AUTO_PUNCTUATE,
+                        pid,
+                    )
+                    .unwrap_or(true);
+                    let method = crate::settings::get_typed_with_profile::<output::OutputMethod>(
+                        &conn,
+                        crate::settings::keys::OUTPUT_METHOD,
+                        pid,
+                    )
+                    .unwrap_or_else(|_| output::auto_select_method());
+                    let submit_enabled = crate::settings::get_typed_with_profile::<bool>(
+                        &conn,
+                        crate::settings::keys::AUTO_SUBMIT_ENABLED,
+                        pid,
+                    )
+                    .unwrap_or(false);
+                    let submit_key_str = crate::settings::get_typed_with_profile::<String>(
+                        &conn,
+                        crate::settings::keys::AUTO_SUBMIT_KEY,
+                        pid,
+                    )
+                    .unwrap_or_else(|_| "enter".to_string());
+                    let submit_delay = crate::settings::get_typed_with_profile::<u64>(
+                        &conn,
+                        crate::settings::keys::AUTO_SUBMIT_DELAY_MS,
+                        pid,
+                    )
+                    .unwrap_or(100);
+                    let edit_buf = crate::settings::get_typed_with_profile::<bool>(
+                        &conn,
+                        crate::settings::keys::EDIT_BUFFER_ENABLED,
+                        pid,
+                    )
+                    .unwrap_or(false);
+                    let custom_words: Vec<String> =
+                        crate::settings::get_typed_with_profile(
+                            &conn,
+                            crate::settings::keys::CUSTOM_WORDS,
+                            pid,
+                        )
+                        .unwrap_or_default();
+                    (
+                        mode,
+                        punctuate,
+                        method,
+                        submit_enabled,
+                        output::AutoSubmitKey::from_str(&submit_key_str),
+                        submit_delay,
+                        edit_buf,
+                        custom_words,
+                    )
+                };
+
+                // Apply custom word corrections
+                let corrected = if !custom_words.is_empty() {
+                    vocabulary::apply_custom_words(
+                        &streaming_text,
+                        &custom_words,
+                        vocabulary::DEFAULT_THRESHOLD,
+                    )
+                } else {
+                    streaming_text
+                };
+                let text = postprocess_text(&corrected, &dictation_mode, auto_punctuate);
+                let latency = finalize_start.elapsed().as_millis() as u64;
+
+                info!(
+                    latency_ms = latency,
+                    text_len = text.len(),
+                    route = "streaming",
+                    "Streaming dictation complete"
+                );
+
+                let latency_breakdown = LatencyBreakdown {
+                    processing_ms: 0, // streaming does processing inline
+                    transcription_ms: latency,
+                    network_ms: 0,
+                };
+
+                // Edit buffer path
+                if edit_buffer_enabled {
+                    *pending_edit_arc.lock().await = Some(PendingEdit {
+                        text: text.clone(),
+                        focus_target,
+                        selection,
+                        output_method,
+                        auto_submit_enabled,
+                        auto_submit_key,
+                        auto_submit_delay_ms,
+                        audio: audio_for_history,
+                        release_time: finalize_start,
+                        latency_breakdown,
+                    });
+
+                    *state_ref.lock().await = DictationState::Editing;
+                    emit_state(
+                        &app_handle,
+                        &DictationEvent {
+                            state: DictationState::Editing,
+                            text: Some(text),
+                            error: None,
+                            latency_ms: Some(latency),
+                        },
+                    );
+
+                    if let Err(e) = open_edit_buffer_window(&app_handle) {
+                        error!(%e, "Failed to open edit buffer window");
+                        *pending_edit_arc.lock().await = None;
+                        *state_ref.lock().await = DictationState::Idle;
+                        emit_state(
+                            &app_handle,
+                            &DictationEvent {
+                                state: DictationState::Idle,
+                                text: None,
+                                error: Some(format!("Edit buffer failed: {e}")),
+                                latency_ms: None,
+                            },
+                        );
+                    }
+                    return;
+                }
+
+                // Direct insertion path
+                do_insert(
+                    &app_handle,
+                    &state_ref,
+                    &db,
+                    &text,
+                    &focus_target,
+                    &selection,
+                    &output_method,
+                    auto_submit_enabled,
+                    &auto_submit_key,
+                    auto_submit_delay_ms,
+                    &audio_for_history,
+                    finalize_start,
+                    &latency_breakdown,
+                )
+                .await;
+            });
+
+            return;
+        }
+
+        // --- Classic route: full pipeline after stop ---
 
         // Transition to transcribing
         *self.state.lock().await = DictationState::Transcribing;
@@ -736,6 +1094,187 @@ pub async fn complete_edit_discard(app: &AppHandle) {
     info!("Edit buffer discarded");
 }
 
+/// Check whether a cloud provider supports native WebSocket streaming.
+fn provider_supports_native_streaming(provider: &str) -> bool {
+    matches!(provider, "deepgram" | "openai")
+}
+
+/// Check whether a cloud provider supports simulated streaming
+/// (batch-only providers wrapped in the LocalAgreement engine).
+fn provider_supports_simulated_streaming(provider: &str) -> bool {
+    matches!(provider, "groq")
+}
+
+/// Resolve the effective dictation route from the user's setting.
+///
+/// - `"auto"` → `"streaming"` if the active engine supports it (native or simulated), else `"classic"`
+/// - `"streaming"` → `"streaming"` if possible, else falls back to `"classic"`
+/// - `"classic"` → used as-is
+async fn resolve_dictation_route(configured: &str, app_state: &AppState) -> String {
+    let (engine_type, provider, simulated_enabled) = {
+        let conn = app_state.db.lock().await;
+        let et = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::ENGINE_TYPE,
+        )
+        .unwrap_or_else(|_| "local".to_string());
+        let cp: Option<String> = crate::settings::get_typed(
+            &conn,
+            crate::settings::keys::CLOUD_PROVIDER,
+        )
+        .ok();
+        let sim = crate::settings::get_typed::<bool>(
+            &conn,
+            crate::settings::keys::SIMULATED_STREAMING_ENABLED,
+        )
+        .unwrap_or(true);
+        (et, cp, sim)
+    };
+
+    let can_stream = if engine_type == "cloud" {
+        if let Some(ref p) = provider {
+            provider_supports_native_streaming(p)
+                || (simulated_enabled && provider_supports_simulated_streaming(p))
+        } else {
+            false
+        }
+    } else {
+        // Local engine: can stream via simulated streaming if enabled
+        simulated_enabled
+    };
+
+    match configured {
+        "classic" => "classic".to_string(),
+        "streaming" => {
+            if can_stream {
+                "streaming".to_string()
+            } else {
+                info!("Streaming requested but not available, falling back to classic");
+                "classic".to_string()
+            }
+        }
+        _ => {
+            // "auto" (default)
+            if can_stream {
+                let source = if engine_type == "local" {
+                    "local (simulated)"
+                } else {
+                    provider.as_deref().unwrap_or("unknown")
+                };
+                info!(source = %source, "Auto-resolved dictation route to streaming");
+                "streaming".to_string()
+            } else {
+                "classic".to_string()
+            }
+        }
+    }
+}
+
+/// Create a streaming STT engine based on current settings.
+///
+/// Returns a streaming engine for the configured provider. For providers with
+/// native WebSocket streaming (Deepgram, OpenAI), returns the native engine.
+/// For batch-only providers (Groq) or local Whisper, wraps them in a
+/// `SimulatedStreamingEngine` that uses the LocalAgreement algorithm.
+async fn create_streaming_engine(
+    app: &AppHandle,
+) -> Result<Arc<dyn StreamingSttEngine>, String> {
+    let app_state: tauri::State<'_, AppState> = app.state();
+
+    let (engine_type, cloud_provider, openai_model, deepgram_model, groq_model) = {
+        let conn = app_state.db.lock().await;
+        let et = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::ENGINE_TYPE,
+        )
+        .unwrap_or_else(|_| "local".to_string());
+        let cp = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::CLOUD_PROVIDER,
+        )
+        .ok();
+        // For streaming, always use a realtime-capable model, NOT the batch
+        // openai_model setting which defaults to "whisper-1" (batch-only).
+        // The OpenAI Realtime API requires gpt-4o-transcribe or gpt-4o-mini-transcribe.
+        let om = "gpt-4o-transcribe".to_string();
+        let dm = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::DEEPGRAM_MODEL,
+        )
+        .unwrap_or_else(|_| "nova-3".to_string());
+        let gm = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::GROQ_MODEL,
+        )
+        .unwrap_or_else(|_| "whisper-large-v3".to_string());
+        (et, cp, om, dm, gm)
+    };
+
+    // Local engine: wrap the loaded engine from EngineManager in SimulatedStreamingEngine
+    if engine_type == "local" {
+        let batch_engine = app_state
+            .engine_manager
+            .get_engine()
+            .await
+            .ok_or("No local engine loaded")?;
+
+        info!("Creating simulated streaming engine wrapping local Whisper");
+        return Ok(Arc::new(
+            crate::engine::simulated_streaming::SimulatedStreamingEngine::new(batch_engine),
+        ));
+    }
+
+    let provider = cloud_provider.ok_or("No cloud provider configured")?;
+
+    match provider.as_str() {
+        // Native WebSocket streaming
+        "deepgram" => {
+            let key = crate::security::keyring_store::get_api_key(
+                crate::engine::cloud::CloudProvider::Deepgram,
+            )
+            .map_err(|e| format!("Keyring error: {e}"))?
+            .ok_or("No Deepgram API key stored")?;
+
+            let engine = crate::engine::cloud::deepgram_streaming::DeepgramStreamingEngine::new(key)
+                .with_model(deepgram_model);
+            Ok(Arc::new(engine))
+        }
+        "openai" => {
+            let key = crate::security::keyring_store::get_api_key(
+                crate::engine::cloud::CloudProvider::OpenAi,
+            )
+            .map_err(|e| format!("Keyring error: {e}"))?
+            .ok_or("No OpenAI API key stored")?;
+
+            let engine = crate::engine::cloud::openai_streaming::OpenAiStreamingEngine::new(key)
+                .with_model(openai_model);
+            Ok(Arc::new(engine))
+        }
+        // Batch-only provider: wrap in SimulatedStreamingEngine
+        "groq" => {
+            let key = crate::security::keyring_store::get_api_key(
+                crate::engine::cloud::CloudProvider::Groq,
+            )
+            .map_err(|e| format!("Keyring error: {e}"))?
+            .ok_or("No Groq API key stored")?;
+
+            let batch_engine = crate::engine::cloud::groq::GroqEngine::new(key)
+                .map_err(|e| format!("Failed to create Groq engine: {e}"))?
+                .with_model(groq_model);
+
+            info!("Creating simulated streaming engine wrapping Groq");
+            Ok(Arc::new(
+                crate::engine::simulated_streaming::SimulatedStreamingEngine::new(
+                    Arc::new(batch_engine),
+                ),
+            ))
+        }
+        other => Err(format!(
+            "Provider '{other}' does not support streaming."
+        )),
+    }
+}
+
 /// Result of a transcription pipeline run, including timing.
 struct PipelineResult {
     text: String,
@@ -764,6 +1303,7 @@ async fn run_transcription_pipeline(
         audio: processed.samples,
         sample_rate: processed.sample_rate,
         language: None,
+        prompt: None,
     };
 
     let transcribe_start = Instant::now();
@@ -1075,7 +1615,10 @@ fn manage_overlay(app: &AppHandle, state: &DictationState) {
     let state = state.clone();
     let show = matches!(
         state,
-        DictationState::Recording | DictationState::Transcribing | DictationState::Inserting
+        DictationState::Recording
+            | DictationState::Transcribing
+            | DictationState::Finalizing
+            | DictationState::Inserting
     );
 
     if let Err(e) = app.clone().run_on_main_thread(move || {

@@ -37,6 +37,9 @@
     auto_submit_key: string;
     auto_submit_delay_ms: number;
     streaming_enabled: boolean;
+    dictation_route: string;
+    streaming_endpoint_ms: number;
+    simulated_streaming_enabled: boolean;
     edit_buffer_enabled: boolean;
     custom_words: string[];
     private_mode_enabled: boolean;
@@ -67,7 +70,7 @@
     created_at: string;
   }
 
-  type SettingsSection = "dictation" | "engine" | "microphone" | "feedback" | "theme" | "history" | "cloud" | "profiles" | "vocabulary" | "advanced" | "diagnostics";
+  type SettingsSection = "dictation" | "engine" | "microphone" | "feedback" | "theme" | "history" | "cloud" | "profiles" | "vocabulary" | "advanced" | "diagnostics" | "permissions";
   let activeSection: SettingsSection = $state("dictation");
 
   const sectionNav: { id: SettingsSection; labelKey: StringKeys }[] = [
@@ -81,6 +84,7 @@
     { id: "profiles", labelKey: "settings.section_profiles" },
     { id: "vocabulary", labelKey: "settings.section_vocabulary" },
     { id: "advanced", labelKey: "settings.section_advanced" },
+    { id: "permissions", labelKey: "permissions.title" },
     { id: "diagnostics", labelKey: "settings.diagnostics" },
   ];
 
@@ -567,7 +571,7 @@
   });
 </script>
 
-<div class="flex h-full">
+<div class="relative flex h-full">
   <!-- Left sidebar nav -->
   <nav class="w-44 shrink-0 border-r border-border overflow-y-auto py-4 px-2">
     {#each sectionNav as sec (sec.id)}
@@ -595,17 +599,9 @@
       </p>
     {/if}
 
-    {#if successMessage}
-      <p
-        class="mb-4 rounded bg-status-success/20 p-3 text-sm text-status-success"
-        role="status"
-        aria-live="polite"
-      >
-        {successMessage}
-      </p>
+    {#if activeSection === "permissions"}
+      <PermissionGuide />
     {/if}
-
-    <PermissionGuide />
 
     {#if settings}
       {#if activeSection === "dictation"}
@@ -879,6 +875,30 @@
           />
         </div>
 
+        {#if settings.engine_type === "cloud" && (settings.cloud_provider === "deepgram" || settings.cloud_provider === "openai") && settings.dictation_route !== "classic"}
+          <div class="flex items-center justify-between">
+            <div>
+              <label for="pause-sensitivity" class="text-sm">{t("settings.pause_sensitivity")}</label>
+              <p class="text-xs text-text-muted">{t("settings.pause_sensitivity_hint")}</p>
+            </div>
+            <select
+              id="pause-sensitivity"
+              value={settings.streaming_endpoint_ms}
+              onchange={(e) =>
+                saveSetting(
+                  "streaming_endpoint_ms",
+                  parseInt((e.target as HTMLSelectElement).value, 10),
+                )}
+              class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+            >
+              <option value={500}>{t("settings.pause_short")}</option>
+              <option value={1500}>{t("settings.pause_medium")}</option>
+              <option value={3000}>{t("settings.pause_long")}</option>
+              <option value={5000}>{t("settings.pause_very_long")}</option>
+            </select>
+          </div>
+        {/if}
+
         <div class="flex items-center justify-between">
           <label for="edit-buffer" class="text-sm"
             >{t("settings.edit_buffer")}</label
@@ -962,6 +982,54 @@
               {cloudProviders.find((p) => p.id === settings?.cloud_provider)?.name ?? settings.cloud_provider}
               / {currentModel(settings.cloud_provider)}
             </span>
+          </div>
+        {/if}
+
+        {#if settings.engine_type === "cloud" && (settings.cloud_provider === "deepgram" || settings.cloud_provider === "openai")}
+          <div class="flex items-center justify-between">
+            <div>
+              <label for="dictation-route" class="text-sm">{t("settings.streaming_mode")}</label>
+              <p class="text-xs text-text-muted">{t("settings.streaming_mode_hint")}</p>
+            </div>
+            <select
+              id="dictation-route"
+              value={settings.dictation_route}
+              onchange={(e) =>
+                saveSetting(
+                  "dictation_route",
+                  (e.target as HTMLSelectElement).value,
+                )}
+              class="rounded border border-border bg-bg-primary px-3 py-1 text-sm"
+            >
+              <option value="auto">{t("settings.route_auto")}</option>
+              <option value="streaming">{t("settings.route_streaming")}</option>
+              <option value="classic">{t("settings.route_classic")}</option>
+            </select>
+          </div>
+
+        {/if}
+
+        {#if settings.engine_type === "local" || (settings.engine_type === "cloud" && settings.cloud_provider === "groq")}
+          <div class="flex items-center justify-between">
+            <div>
+              <label for="simulated-streaming" class="text-sm"
+                >{t("settings.simulated_streaming")}</label
+              >
+              <p class="text-xs text-text-muted"
+                >{t("settings.simulated_streaming_hint")}</p
+              >
+            </div>
+            <input
+              id="simulated-streaming"
+              type="checkbox"
+              checked={settings.simulated_streaming_enabled}
+              onchange={(e) =>
+                saveSetting(
+                  "simulated_streaming_enabled",
+                  (e.target as HTMLInputElement).checked,
+                )}
+              class="h-4 w-4 rounded accent-accent"
+            />
           </div>
         {/if}
 
@@ -1648,6 +1716,16 @@
     {/if}
   {/if}
   </div>
+
+  {#if successMessage}
+    <div
+      class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-status-success/20 px-4 py-2 text-sm text-status-success shadow-lg backdrop-blur-sm transition-opacity"
+      role="status"
+      aria-live="polite"
+    >
+      {successMessage}
+    </div>
+  {/if}
 </div>
 
 <!-- Cloud Opt-In Confirmation Modal -->

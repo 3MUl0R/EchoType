@@ -183,6 +183,7 @@ fn transcribe(
         audio: processed.samples,
         sample_rate: processed.sample_rate,
         language: None,
+        prompt: None,
     };
     // Use a temporary tokio runtime to call the async transcribe method
     let rt = tokio::runtime::Builder::new_current_thread()

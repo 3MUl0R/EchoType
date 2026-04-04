@@ -124,6 +124,7 @@ pub fn start_streaming(
                 audio: processed.samples,
                 sample_rate: processed.sample_rate,
                 language: None,
+                prompt: None,
             };
 
             match engine_manager.transcribe(request).await {

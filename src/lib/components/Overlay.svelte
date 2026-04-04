@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -7,7 +8,8 @@
     | "recording"
     | "transcribing"
     | "editing"
-    | "inserting";
+    | "inserting"
+    | "finalizing";
 
   interface DictationEvent {
     state: DictationState;
@@ -16,8 +18,31 @@
     latency_ms: number | null;
   }
 
+  interface PartialResult {
+    session_id: string;
+    seq: number;
+    text: string;
+    is_final: boolean;
+    stability: string;
+    route: string;
+  }
+
   let dictationState: DictationState = $state("idle");
   let visible = $state(false);
+
+  // Streaming partial result state
+  let partialText: string = $state("");
+  let activeSessionId: string | null = $state(null);
+  let lastSeq: number = $state(-1);
+  let previewVisible: boolean = $state(false);
+  let previewEnabled: boolean = $state(false);
+
+  // Show only the trailing ~200 characters
+  let displayText = $derived(
+    partialText.length > 200
+      ? "\u2026" + partialText.slice(-200)
+      : partialText,
+  );
 
   // Fade out after inserting/idle
   let fadeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -37,14 +62,40 @@
     }, 600);
   }
 
+  function clearPartialState() {
+    partialText = "";
+    activeSessionId = null;
+    lastSeq = -1;
+    previewVisible = false;
+  }
+
+  // Listen for dictation state changes
   $effect(() => {
     const unlisten = listen<DictationEvent>("dictation:state", (event) => {
       const state = event.payload.state;
       dictationState = state;
 
-      if (state === "recording" || state === "transcribing") {
+      if (state === "recording") {
+        // Re-read preview setting each dictation so toggling takes effect immediately
+        invoke<string>("get_setting", { key: "streaming_preview_enabled" })
+          .then((val) => {
+            try {
+              previewEnabled = JSON.parse(val);
+            } catch {
+              previewEnabled = false;
+            }
+          })
+          .catch(() => {
+            previewEnabled = false;
+          });
+        showOverlay();
+      } else if (
+        state === "transcribing" ||
+        state === "finalizing"
+      ) {
         showOverlay();
       } else if (state === "idle") {
+        clearPartialState();
         hideOverlay();
       }
       // "editing" and "inserting" — keep visible if already shown
@@ -53,6 +104,33 @@
     return () => {
       unlisten.then((fn) => fn());
       if (fadeTimeout) clearTimeout(fadeTimeout);
+    };
+  });
+
+  // Listen for streaming partial results
+  $effect(() => {
+    const unlisten = listen<PartialResult>("dictation:partial", (event) => {
+      const partial = event.payload;
+
+      // Set session from first partial received
+      if (activeSessionId === null) {
+        activeSessionId = partial.session_id;
+        lastSeq = -1;
+      }
+
+      // Ignore partials from a different session
+      if (partial.session_id !== activeSessionId) return;
+
+      // Ignore out-of-order partials
+      if (partial.seq < lastSeq) return;
+
+      lastSeq = partial.seq;
+      partialText = partial.text;
+      previewVisible = previewEnabled;
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
     };
   });
 
@@ -68,12 +146,16 @@
   class:visible
   class:recording={dictationState === "recording"}
   class:processing={dictationState === "transcribing" ||
-    dictationState === "inserting"}
+    dictationState === "inserting" ||
+    dictationState === "finalizing"}
 >
   <div class="overlay-pill">
     {#if dictationState === "recording"}
       <div class="recording-dot"></div>
       <span class="label">Listening…</span>
+    {:else if dictationState === "finalizing"}
+      <div class="spinner"></div>
+      <span class="label">Finalizing…</span>
     {:else if dictationState === "transcribing" || dictationState === "inserting"}
       <div class="spinner"></div>
       <span class="label">Processing…</span>
@@ -81,6 +163,13 @@
       <span class="label">Ready</span>
     {/if}
   </div>
+
+  {#if previewVisible && partialText}
+    <div class="preview-card">
+      <div class="preview-header">Live Preview</div>
+      <div class="preview-text">{displayText}</div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -88,8 +177,10 @@
     position: fixed;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 8px;
     pointer-events: none;
     opacity: 0;
     transform: translateY(8px);
@@ -177,5 +268,55 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  /* Live preview card */
+  .preview-card {
+    max-width: 320px;
+    max-height: 80px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: rgba(30, 30, 30, 0.65);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 4px 24px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(4px);
+    animation: preview-in 0.2s ease forwards;
+  }
+
+  @keyframes preview-in {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .preview-header {
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+
+  .preview-text {
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.75);
+    line-height: 1.4;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
   }
 </style>

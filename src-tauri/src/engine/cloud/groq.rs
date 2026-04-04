@@ -60,10 +60,12 @@ impl SttEngine for GroqEngine {
             .map_err(|e| EngineError::TranscriptionFailed(format!("WAV encode: {e}")))?;
 
         let language = request.language.clone();
+        let prompt = request.prompt.clone();
         let client = self.client.clone();
         let api_key = self.api_key.clone();
         let model = self.model.clone();
         let lang_clone = language.clone();
+        let prompt_clone = prompt.clone();
 
         let body: Vec<u8> = send_with_retry(CloudProvider::Groq, || {
             let client = client.clone();
@@ -71,6 +73,7 @@ impl SttEngine for GroqEngine {
             let model = model.clone();
             let wav = wav_data.clone();
             let lang = lang_clone.clone();
+            let prompt = prompt_clone.clone();
 
             async move {
                 let file_part = reqwest::multipart::Part::bytes(wav)
@@ -80,10 +83,15 @@ impl SttEngine for GroqEngine {
 
                 let mut form = reqwest::multipart::Form::new()
                     .part("file", file_part)
-                    .text("model", model);
+                    .text("model", model)
+                    .text("response_format", "verbose_json")
+                    .text("timestamp_granularities[]", "word");
 
                 if let Some(ref lang) = lang {
                     form = form.text("language", lang.0.clone());
+                }
+                if let Some(ref prompt) = prompt {
+                    form = form.text("prompt", prompt.clone());
                 }
 
                 client
@@ -102,11 +110,26 @@ impl SttEngine for GroqEngine {
 
         let text = json["text"].as_str().unwrap_or("").trim().to_string();
 
+        // Parse word-level timestamps from verbose_json response.
+        let words = json["words"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|w| {
+                    Some(crate::engine::WordTimestamp {
+                        word: w["word"].as_str()?.to_string(),
+                        start: w["start"].as_f64()?,
+                        end: w["end"].as_f64()?,
+                        probability: w["probability"].as_f64().map(|p| p as f32),
+                    })
+                })
+                .collect()
+        });
+
         let duration_ms = start.elapsed().as_millis() as u64;
         debug!(
             provider = "groq",
             duration_ms,
             text_len = text.len(),
+            word_count = words.as_ref().map(|w: &Vec<_>| w.len()).unwrap_or(0),
             "Groq transcription complete"
         );
 
@@ -114,6 +137,7 @@ impl SttEngine for GroqEngine {
             text,
             language: language.or_else(|| Some(Language("en".to_string()))),
             duration_ms,
+            words,
         })
     }
 
