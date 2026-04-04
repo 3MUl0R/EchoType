@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -34,6 +35,7 @@
   let activeSessionId: string | null = $state(null);
   let lastSeq: number = $state(-1);
   let previewVisible: boolean = $state(false);
+  let previewEnabled: boolean = $state(false);
 
   // Show only the trailing ~200 characters
   let displayText = $derived(
@@ -73,8 +75,21 @@
       const state = event.payload.state;
       dictationState = state;
 
-      if (
-        state === "recording" ||
+      if (state === "recording") {
+        // Re-read preview setting each dictation so toggling takes effect immediately
+        invoke<string>("get_setting", { key: "streaming_preview_enabled" })
+          .then((val) => {
+            try {
+              previewEnabled = JSON.parse(val);
+            } catch {
+              previewEnabled = false;
+            }
+          })
+          .catch(() => {
+            previewEnabled = false;
+          });
+        showOverlay();
+      } else if (
         state === "transcribing" ||
         state === "finalizing"
       ) {
@@ -111,7 +126,7 @@
 
       lastSeq = partial.seq;
       partialText = partial.text;
-      previewVisible = true;
+      previewVisible = previewEnabled;
     });
 
     return () => {
