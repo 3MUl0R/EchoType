@@ -34,6 +34,7 @@ pub mod keys {
     pub const STREAMING_PREVIEW_ENABLED: &str = "streaming_preview_enabled";
     pub const STREAMING_PREVIEW_SURFACE: &str = "streaming_preview_surface";
     pub const STREAMING_ENDPOINT_MS: &str = "streaming_endpoint_ms";
+    pub const SIMULATED_STREAMING_ENABLED: &str = "simulated_streaming_enabled";
     pub const EDIT_BUFFER_ENABLED: &str = "edit_buffer_enabled";
     pub const CUSTOM_WORDS: &str = "custom_words";
     pub const PRIVATE_MODE_ENABLED: &str = "private_mode_enabled";
@@ -82,6 +83,7 @@ pub struct AllSettings {
     pub streaming_preview_enabled: bool,
     pub streaming_preview_surface: String,
     pub streaming_endpoint_ms: u64,
+    pub simulated_streaming_enabled: bool,
     pub edit_buffer_enabled: bool,
     pub custom_words: Vec<String>,
     pub private_mode_enabled: bool,
@@ -134,6 +136,7 @@ fn default_for(key: &str) -> Option<String> {
         keys::STREAMING_PREVIEW_ENABLED => "false",
         keys::STREAMING_PREVIEW_SURFACE => "\"overlay\"",
         keys::STREAMING_ENDPOINT_MS => "1500",
+        keys::SIMULATED_STREAMING_ENABLED => "true",
         keys::EDIT_BUFFER_ENABLED => "false",
         keys::CUSTOM_WORDS => "[]",
         keys::PRIVATE_MODE_ENABLED => "false",
@@ -233,6 +236,7 @@ pub fn get_all(conn: &Connection) -> Result<AllSettings, String> {
         streaming_preview_enabled: get_typed(conn, keys::STREAMING_PREVIEW_ENABLED)?,
         streaming_preview_surface: get_typed(conn, keys::STREAMING_PREVIEW_SURFACE)?,
         streaming_endpoint_ms: get_typed(conn, keys::STREAMING_ENDPOINT_MS)?,
+        simulated_streaming_enabled: get_typed(conn, keys::SIMULATED_STREAMING_ENABLED)?,
         edit_buffer_enabled: get_typed(conn, keys::EDIT_BUFFER_ENABLED)?,
         custom_words: get_typed(conn, keys::CUSTOM_WORDS).unwrap_or_default(),
         private_mode_enabled: get_typed(conn, keys::PRIVATE_MODE_ENABLED)?,
@@ -337,6 +341,7 @@ mod tests {
             keys::DICTATION_ROUTE,
             keys::STREAMING_PREVIEW_ENABLED,
             keys::STREAMING_PREVIEW_SURFACE,
+            keys::SIMULATED_STREAMING_ENABLED,
             keys::EDIT_BUFFER_ENABLED,
             keys::CUSTOM_WORDS,
             keys::PRIVATE_MODE_ENABLED,
@@ -421,6 +426,7 @@ mod tests {
         assert_eq!(all.dictation_route, "auto");
         assert!(!all.streaming_preview_enabled);
         assert_eq!(all.streaming_preview_surface, "overlay");
+        assert!(all.simulated_streaming_enabled);
         assert!(!all.edit_buffer_enabled);
         assert!(all.custom_words.is_empty());
         assert!(!all.private_mode_enabled);

@@ -35,6 +35,7 @@ hound = "3.5"
 
 # STT
 whisper-rs = { version = "0.15", features = ["tracing_backend"] }
+webrtc-vad = "0.4"
 
 # Global hotkey
 tauri-plugin-global-shortcut = "2"

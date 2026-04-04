@@ -39,6 +39,7 @@
     streaming_enabled: boolean;
     dictation_route: string;
     streaming_endpoint_ms: number;
+    simulated_streaming_enabled: boolean;
     edit_buffer_enabled: boolean;
     custom_words: string[];
     private_mode_enabled: boolean;
@@ -570,7 +571,7 @@
   });
 </script>
 
-<div class="flex h-full">
+<div class="relative flex h-full">
   <!-- Left sidebar nav -->
   <nav class="w-44 shrink-0 border-r border-border overflow-y-auto py-4 px-2">
     {#each sectionNav as sec (sec.id)}
@@ -595,16 +596,6 @@
         role="alert"
       >
         {errorMessage}
-      </p>
-    {/if}
-
-    {#if successMessage}
-      <p
-        class="mb-4 rounded bg-status-success/20 p-3 text-sm text-status-success"
-        role="status"
-        aria-live="polite"
-      >
-        {successMessage}
       </p>
     {/if}
 
@@ -1016,6 +1007,30 @@
             </select>
           </div>
 
+        {/if}
+
+        {#if settings.engine_type === "local" || (settings.engine_type === "cloud" && settings.cloud_provider === "groq")}
+          <div class="flex items-center justify-between">
+            <div>
+              <label for="simulated-streaming" class="text-sm"
+                >{t("settings.simulated_streaming")}</label
+              >
+              <p class="text-xs text-text-muted"
+                >{t("settings.simulated_streaming_hint")}</p
+              >
+            </div>
+            <input
+              id="simulated-streaming"
+              type="checkbox"
+              checked={settings.simulated_streaming_enabled}
+              onchange={(e) =>
+                saveSetting(
+                  "simulated_streaming_enabled",
+                  (e.target as HTMLInputElement).checked,
+                )}
+              class="h-4 w-4 rounded accent-accent"
+            />
+          </div>
         {/if}
 
         <div class="flex items-center justify-between">
@@ -1701,6 +1716,16 @@
     {/if}
   {/if}
   </div>
+
+  {#if successMessage}
+    <div
+      class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-status-success/20 px-4 py-2 text-sm text-status-success shadow-lg backdrop-blur-sm transition-opacity"
+      role="status"
+      aria-live="polite"
+    >
+      {successMessage}
+    </div>
+  {/if}
 </div>
 
 <!-- Cloud Opt-In Confirmation Modal -->

@@ -1094,58 +1094,94 @@ pub async fn complete_edit_discard(app: &AppHandle) {
     info!("Edit buffer discarded");
 }
 
-/// Check whether a cloud provider supports WebSocket streaming.
-fn provider_supports_streaming(provider: &str) -> bool {
+/// Check whether a cloud provider supports native WebSocket streaming.
+fn provider_supports_native_streaming(provider: &str) -> bool {
     matches!(provider, "deepgram" | "openai")
+}
+
+/// Check whether a cloud provider supports simulated streaming
+/// (batch-only providers wrapped in the LocalAgreement engine).
+fn provider_supports_simulated_streaming(provider: &str) -> bool {
+    matches!(provider, "groq")
 }
 
 /// Resolve the effective dictation route from the user's setting.
 ///
-/// - `"auto"` → `"streaming"` if the active cloud provider supports it, else `"classic"`
-/// - `"streaming"` or `"classic"` → used as-is
+/// - `"auto"` → `"streaming"` if the active engine supports it (native or simulated), else `"classic"`
+/// - `"streaming"` → `"streaming"` if possible, else falls back to `"classic"`
+/// - `"classic"` → used as-is
 async fn resolve_dictation_route(configured: &str, app_state: &AppState) -> String {
+    let (engine_type, provider, simulated_enabled) = {
+        let conn = app_state.db.lock().await;
+        let et = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::ENGINE_TYPE,
+        )
+        .unwrap_or_else(|_| "local".to_string());
+        let cp: Option<String> = crate::settings::get_typed(
+            &conn,
+            crate::settings::keys::CLOUD_PROVIDER,
+        )
+        .ok();
+        let sim = crate::settings::get_typed::<bool>(
+            &conn,
+            crate::settings::keys::SIMULATED_STREAMING_ENABLED,
+        )
+        .unwrap_or(true);
+        (et, cp, sim)
+    };
+
+    let can_stream = if engine_type == "cloud" {
+        if let Some(ref p) = provider {
+            provider_supports_native_streaming(p)
+                || (simulated_enabled && provider_supports_simulated_streaming(p))
+        } else {
+            false
+        }
+    } else {
+        // Local engine: can stream via simulated streaming if enabled
+        simulated_enabled
+    };
+
     match configured {
-        "streaming" => "streaming".to_string(),
         "classic" => "classic".to_string(),
-        _ => {
-            // "auto" (default): detect from engine type + provider
-            let (engine_type, provider) = {
-                let conn = app_state.db.lock().await;
-                let et = crate::settings::get_typed::<String>(
-                    &conn,
-                    crate::settings::keys::ENGINE_TYPE,
-                )
-                .unwrap_or_else(|_| "local".to_string());
-                let cp: Option<String> = crate::settings::get_typed(
-                    &conn,
-                    crate::settings::keys::CLOUD_PROVIDER,
-                )
-                .ok();
-                (et, cp)
-            };
-            if engine_type == "cloud" {
-                if let Some(ref p) = provider {
-                    if provider_supports_streaming(p) {
-                        info!(provider = %p, "Auto-resolved dictation route to streaming");
-                        return "streaming".to_string();
-                    }
-                }
+        "streaming" => {
+            if can_stream {
+                "streaming".to_string()
+            } else {
+                info!("Streaming requested but not available, falling back to classic");
+                "classic".to_string()
             }
-            "classic".to_string()
+        }
+        _ => {
+            // "auto" (default)
+            if can_stream {
+                let source = if engine_type == "local" {
+                    "local (simulated)"
+                } else {
+                    provider.as_deref().unwrap_or("unknown")
+                };
+                info!(source = %source, "Auto-resolved dictation route to streaming");
+                "streaming".to_string()
+            } else {
+                "classic".to_string()
+            }
         }
     }
 }
 
 /// Create a streaming STT engine based on current settings.
 ///
-/// Returns a streaming engine for the configured cloud provider, or an error
-/// if the provider doesn't support streaming or no API key is available.
+/// Returns a streaming engine for the configured provider. For providers with
+/// native WebSocket streaming (Deepgram, OpenAI), returns the native engine.
+/// For batch-only providers (Groq) or local Whisper, wraps them in a
+/// `SimulatedStreamingEngine` that uses the LocalAgreement algorithm.
 async fn create_streaming_engine(
     app: &AppHandle,
 ) -> Result<Arc<dyn StreamingSttEngine>, String> {
     let app_state: tauri::State<'_, AppState> = app.state();
 
-    let (engine_type, cloud_provider, openai_model, deepgram_model) = {
+    let (engine_type, cloud_provider, openai_model, deepgram_model, groq_model) = {
         let conn = app_state.db.lock().await;
         let et = crate::settings::get_typed::<String>(
             &conn,
@@ -1166,16 +1202,32 @@ async fn create_streaming_engine(
             crate::settings::keys::DEEPGRAM_MODEL,
         )
         .unwrap_or_else(|_| "nova-3".to_string());
-        (et, cp, om, dm)
+        let gm = crate::settings::get_typed::<String>(
+            &conn,
+            crate::settings::keys::GROQ_MODEL,
+        )
+        .unwrap_or_else(|_| "whisper-large-v3".to_string());
+        (et, cp, om, dm, gm)
     };
 
-    if engine_type != "cloud" {
-        return Err("Streaming route requires a cloud engine (Deepgram or OpenAI)".to_string());
+    // Local engine: wrap the loaded engine from EngineManager in SimulatedStreamingEngine
+    if engine_type == "local" {
+        let batch_engine = app_state
+            .engine_manager
+            .get_engine()
+            .await
+            .ok_or("No local engine loaded")?;
+
+        info!("Creating simulated streaming engine wrapping local Whisper");
+        return Ok(Arc::new(
+            crate::engine::simulated_streaming::SimulatedStreamingEngine::new(batch_engine),
+        ));
     }
 
     let provider = cloud_provider.ok_or("No cloud provider configured")?;
 
     match provider.as_str() {
+        // Native WebSocket streaming
         "deepgram" => {
             let key = crate::security::keyring_store::get_api_key(
                 crate::engine::cloud::CloudProvider::Deepgram,
@@ -1198,8 +1250,27 @@ async fn create_streaming_engine(
                 .with_model(openai_model);
             Ok(Arc::new(engine))
         }
+        // Batch-only provider: wrap in SimulatedStreamingEngine
+        "groq" => {
+            let key = crate::security::keyring_store::get_api_key(
+                crate::engine::cloud::CloudProvider::Groq,
+            )
+            .map_err(|e| format!("Keyring error: {e}"))?
+            .ok_or("No Groq API key stored")?;
+
+            let batch_engine = crate::engine::cloud::groq::GroqEngine::new(key)
+                .map_err(|e| format!("Failed to create Groq engine: {e}"))?
+                .with_model(groq_model);
+
+            info!("Creating simulated streaming engine wrapping Groq");
+            Ok(Arc::new(
+                crate::engine::simulated_streaming::SimulatedStreamingEngine::new(
+                    Arc::new(batch_engine),
+                ),
+            ))
+        }
         other => Err(format!(
-            "Provider '{other}' does not support streaming. Use Deepgram or OpenAI."
+            "Provider '{other}' does not support streaming."
         )),
     }
 }
@@ -1232,6 +1303,7 @@ async fn run_transcription_pipeline(
         audio: processed.samples,
         sample_rate: processed.sample_rate,
         language: None,
+        prompt: None,
     };
 
     let transcribe_start = Instant::now();

@@ -63,6 +63,11 @@ impl EngineManager {
     pub async fn is_loaded(&self) -> bool {
         self.engine.lock().await.is_some()
     }
+
+    /// Get a clone of the active engine Arc, if one is loaded.
+    pub async fn get_engine(&self) -> Option<Arc<dyn SttEngine>> {
+        self.engine.lock().await.clone()
+    }
 }
 
 #[cfg(test)]
@@ -82,6 +87,7 @@ mod tests {
             audio: vec![0.0; 16000],
             sample_rate: 16000,
             language: None,
+            prompt: None,
         };
         let result = manager.transcribe(request).await;
         assert!(matches!(result, Err(EngineError::NoEngineLoaded)));
