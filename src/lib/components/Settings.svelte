@@ -571,7 +571,7 @@
   });
 </script>
 
-<div class="flex h-full">
+<div class="relative flex h-full">
   <!-- Left sidebar nav -->
   <nav class="w-44 shrink-0 border-r border-border overflow-y-auto py-4 px-2">
     {#each sectionNav as sec (sec.id)}
@@ -596,16 +596,6 @@
         role="alert"
       >
         {errorMessage}
-      </p>
-    {/if}
-
-    {#if successMessage}
-      <p
-        class="mb-4 rounded bg-status-success/20 p-3 text-sm text-status-success"
-        role="status"
-        aria-live="polite"
-      >
-        {successMessage}
       </p>
     {/if}
 
@@ -1726,6 +1716,16 @@
     {/if}
   {/if}
   </div>
+
+  {#if successMessage}
+    <div
+      class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-status-success/20 px-4 py-2 text-sm text-status-success shadow-lg backdrop-blur-sm transition-opacity"
+      role="status"
+      aria-live="polite"
+    >
+      {successMessage}
+    </div>
+  {/if}
 </div>
 
 <!-- Cloud Opt-In Confirmation Modal -->
