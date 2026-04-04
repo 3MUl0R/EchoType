@@ -1,5 +1,6 @@
 pub mod cloud;
 pub mod manager;
+pub mod simulated_streaming;
 pub mod whisper;
 
 use async_trait::async_trait;
@@ -41,6 +42,22 @@ pub struct TranscribeRequest {
     pub sample_rate: u32,
     /// Optional language hint.
     pub language: Option<Language>,
+    /// Optional prompt text for context continuity across consecutive
+    /// transcriptions of a growing audio buffer. Maps to the Whisper API
+    /// `prompt` parameter and whisper.cpp `initial_prompt`.
+    pub prompt: Option<String>,
+}
+
+/// A word with timing information from the transcription engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WordTimestamp {
+    pub word: String,
+    /// Start time in seconds (relative to audio start).
+    pub start: f64,
+    /// End time in seconds (relative to audio start).
+    pub end: f64,
+    /// Word-level confidence score (0.0 - 1.0), if available.
+    pub probability: Option<f32>,
 }
 
 /// Result of a transcription.
@@ -49,6 +66,12 @@ pub struct Transcription {
     pub text: String,
     pub language: Option<Language>,
     pub duration_ms: u64,
+    /// Word-level timestamps, if the engine was asked to produce them.
+    /// Present when using `response_format=verbose_json` with
+    /// `timestamp_granularities=["word"]` (Groq/OpenAI) or when
+    /// token timestamps are enabled (whisper-rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub words: Option<Vec<WordTimestamp>>,
 }
 
 /// Metadata about a loaded model.
@@ -140,6 +163,7 @@ mod tests {
             text: "hello world".to_string(),
             language: Some(Language("en".to_string())),
             duration_ms: 1234,
+            words: None,
         };
         let json = serde_json::to_string(&t).unwrap();
         assert!(json.contains("hello world"));

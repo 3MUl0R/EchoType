@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use tracing::{debug, info};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use super::{EngineError, Language, ModelInfo, SttEngine, TranscribeRequest, Transcription};
+use super::{
+    EngineError, Language, ModelInfo, SttEngine, TranscribeRequest, Transcription, WordTimestamp,
+};
 
 /// Whisper-based STT engine using whisper-rs (whisper.cpp bindings).
 pub struct WhisperEngine {
@@ -70,6 +72,7 @@ impl SttEngine for WhisperEngine {
 
         let audio = request.audio;
         let language = request.language;
+        let prompt = request.prompt;
         let ctx = Arc::clone(&self.ctx);
 
         // Run blocking Whisper inference off the async runtime
@@ -84,11 +87,17 @@ impl SttEngine for WhisperEngine {
             params.set_print_progress(false);
             params.set_print_realtime(false);
             params.set_print_timestamps(false);
+            params.set_token_timestamps(true);
+            params.set_split_on_word(true);
 
             if let Some(ref lang) = language {
                 params.set_language(Some(&lang.0));
             } else {
                 params.set_language(Some("en"));
+            }
+
+            if let Some(ref prompt) = prompt {
+                params.set_initial_prompt(prompt);
             }
 
             state
@@ -98,10 +107,88 @@ impl SttEngine for WhisperEngine {
             let num_segments = state.full_n_segments();
 
             let mut text = String::new();
+            let mut words = Vec::new();
+
             for i in 0..num_segments {
                 if let Some(segment) = state.get_segment(i) {
                     if let Ok(seg_text) = segment.to_str() {
                         text.push_str(seg_text);
+                    }
+
+                    // Extract word-level timestamps from tokens.
+                    let n_tokens = segment.n_tokens();
+                    let mut current_word = String::new();
+                    let mut word_start: Option<i64> = None;
+                    let mut word_end: i64 = 0;
+                    let mut word_prob_sum: f32 = 0.0;
+                    let mut word_prob_count: u32 = 0;
+
+                    for t in 0..n_tokens {
+                        if let Some(token) = segment.get_token(t) {
+                            let token_text = match token.to_str() {
+                                Ok(s) => s.to_string(),
+                                Err(_) => continue,
+                            };
+
+                            // Skip special tokens (e.g. [_BEG_], <|endoftext|>).
+                            let tid = token.token_id();
+                            if tid >= 50257 {
+                                continue;
+                            }
+
+                            let data = token.token_data();
+                            let prob = token.token_probability();
+
+                            // Whisper tokens that start with a space begin a new word.
+                            if token_text.starts_with(' ') && !current_word.is_empty() {
+                                // Emit the accumulated word.
+                                if let Some(ws) = word_start {
+                                    let avg_prob = if word_prob_count > 0 {
+                                        word_prob_sum / word_prob_count as f32
+                                    } else {
+                                        0.0
+                                    };
+                                    words.push(WordTimestamp {
+                                        word: current_word.clone(),
+                                        start: ws as f64 / 100.0, // centiseconds → seconds
+                                        end: word_end as f64 / 100.0,
+                                        probability: Some(avg_prob),
+                                    });
+                                }
+                                current_word.clear();
+                                word_start = None;
+                                word_prob_sum = 0.0;
+                                word_prob_count = 0;
+                            }
+
+                            let trimmed = token_text.trim_start();
+                            if !trimmed.is_empty() {
+                                if word_start.is_none() {
+                                    word_start = Some(data.t0);
+                                }
+                                current_word.push_str(trimmed);
+                                word_end = data.t1;
+                                word_prob_sum += prob;
+                                word_prob_count += 1;
+                            }
+                        }
+                    }
+
+                    // Emit final word in segment.
+                    if !current_word.is_empty() {
+                        if let Some(ws) = word_start {
+                            let avg_prob = if word_prob_count > 0 {
+                                word_prob_sum / word_prob_count as f32
+                            } else {
+                                0.0
+                            };
+                            words.push(WordTimestamp {
+                                word: current_word,
+                                start: ws as f64 / 100.0,
+                                end: word_end as f64 / 100.0,
+                                probability: Some(avg_prob),
+                            });
+                        }
                     }
                 }
             }
@@ -112,6 +199,7 @@ impl SttEngine for WhisperEngine {
             debug!(
                 segments = num_segments,
                 text_len = text.len(),
+                word_count = words.len(),
                 duration_ms = duration.as_millis(),
                 "Transcription complete"
             );
@@ -120,6 +208,7 @@ impl SttEngine for WhisperEngine {
                 text,
                 language: language.or_else(|| Some(Language("en".to_string()))),
                 duration_ms: duration.as_millis() as u64,
+                words: if words.is_empty() { None } else { Some(words) },
             })
         })
         .await

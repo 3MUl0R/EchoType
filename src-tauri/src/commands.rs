@@ -100,6 +100,7 @@ pub async fn transcribe_audio(
         audio: processed.samples,
         sample_rate: processed.sample_rate,
         language: language.map(Language),
+        prompt: None,
     };
 
     state.engine_manager.transcribe(request).await.map_err(|e| {

@@ -39,6 +39,7 @@
     streaming_enabled: boolean;
     dictation_route: string;
     streaming_endpoint_ms: number;
+    simulated_streaming_enabled: boolean;
     edit_buffer_enabled: boolean;
     custom_words: string[];
     private_mode_enabled: boolean;
@@ -1016,6 +1017,30 @@
             </select>
           </div>
 
+        {/if}
+
+        {#if settings.engine_type === "local" || (settings.engine_type === "cloud" && settings.cloud_provider === "groq")}
+          <div class="flex items-center justify-between">
+            <div>
+              <label for="simulated-streaming" class="text-sm"
+                >{t("settings.simulated_streaming")}</label
+              >
+              <p class="text-xs text-text-muted"
+                >{t("settings.simulated_streaming_hint")}</p
+              >
+            </div>
+            <input
+              id="simulated-streaming"
+              type="checkbox"
+              checked={settings.simulated_streaming_enabled}
+              onchange={(e) =>
+                saveSetting(
+                  "simulated_streaming_enabled",
+                  (e.target as HTMLInputElement).checked,
+                )}
+              class="h-4 w-4 rounded accent-accent"
+            />
+          </div>
         {/if}
 
         <div class="flex items-center justify-between">

@@ -80,6 +80,8 @@
   "settings.route_auto": "Auto (recommended)",
   "settings.route_streaming": "Always Stream",
   "settings.route_classic": "Classic (batch after stop)",
+  "settings.simulated_streaming": "Live Streaming (Simulated)",
+  "settings.simulated_streaming_hint": "Show real-time transcription previews using repeated batch calls. Uses more API credits when enabled.",
   "settings.pause_sensitivity": "Pause Sensitivity",
   "settings.pause_sensitivity_hint": "How long to wait during a pause before splitting into a new sentence",
   "settings.pause_short": "Short (0.5s)",
