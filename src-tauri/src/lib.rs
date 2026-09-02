@@ -180,6 +180,12 @@ pub fn run() {
             commands::change_hotkey,
         ])
         .setup(move |app| {
+            // Run as an accessory (menu-bar) app: without this, creating the
+            // overlay window activates EchoType, switching Spaces and stealing
+            // keyboard focus from the app being dictated into.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             // Register the dictation hotkey (using saved value or platform default)
             if let Err(e) =
                 hotkey::register_dictation_hotkey(app.handle(), saved_hotkey.as_deref())

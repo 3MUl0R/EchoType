@@ -913,11 +913,6 @@ async fn do_insert(
         },
     );
 
-    // Restore focus to the original app before inserting
-    if let Some(ref target) = focus_target {
-        focus::restore_focus(target);
-    }
-
     // Log selection-aware replacement
     if let output::selection::SelectionState::Selected(sel) = selection {
         info!(
@@ -926,33 +921,57 @@ async fn do_insert(
         );
     }
 
-    // Insert text (blocking: uses thread::sleep + enigo)
+    // Restore focus and insert text in one blocking task (focus restore polls
+    // via subprocesses, insertion uses thread::sleep + enigo).
     let insert_start = Instant::now();
     let text_owned = text.to_string();
     let method = output_method.clone();
-    let insert_result =
-        tokio::task::spawn_blocking(move || output::insert_text(&text_owned, &method))
-            .await
-            .unwrap_or_else(|e| Err(format!("Insert task panicked: {e}")));
+    let target = focus_target.clone();
+    let insert_result = tokio::task::spawn_blocking(move || {
+        // Typing is only safe when we know keyboard focus is on the app the
+        // user dictated into: we need a captured target AND a successful
+        // restore. Otherwise (capture failed, or the target won't come back
+        // frontmost) degrade to clipboard-only instead of spraying keystrokes
+        // at whatever app is focused now — possibly EchoType itself.
+        let method = match target {
+            Some(ref t) if focus::restore_focus(t) => method,
+            Some(_) => {
+                warn!("Focus restore failed; falling back to clipboard-only insertion");
+                output::OutputMethod::ClipboardOnly
+            }
+            None => {
+                warn!("No focus target captured; falling back to clipboard-only insertion");
+                output::OutputMethod::ClipboardOnly
+            }
+        };
+        output::insert_text(&text_owned, &method).map(|()| method)
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Insert task panicked: {e}")));
     let insertion_ms = insert_start.elapsed().as_millis() as u64;
 
-    if let Err(e) = insert_result {
-        error!(%e, "Text insertion failed");
-        *state_ref.lock().await = DictationState::Idle;
-        emit_state(
-            app,
-            &DictationEvent {
-                state: DictationState::Idle,
-                text: Some(text.to_string()),
-                error: Some(format!("Insertion failed: {e}")),
-                latency_ms: Some(release_time.elapsed().as_millis() as u64),
-            },
-        );
-        return;
-    }
+    let effective_method = match insert_result {
+        Ok(method) => method,
+        Err(e) => {
+            error!(%e, "Text insertion failed");
+            *state_ref.lock().await = DictationState::Idle;
+            emit_state(
+                app,
+                &DictationEvent {
+                    state: DictationState::Idle,
+                    text: Some(text.to_string()),
+                    error: Some(format!("Insertion failed: {e}")),
+                    latency_ms: Some(release_time.elapsed().as_millis() as u64),
+                },
+            );
+            return;
+        }
+    };
 
-    // Auto-submit after successful insertion (skip for clipboard-only mode)
-    if auto_submit_enabled && *output_method != output::OutputMethod::ClipboardOnly {
+    // Auto-submit after successful insertion. Gate on the method actually
+    // used: a clipboard-only fallback means focus is not on the target app,
+    // so a synthesized Enter could submit in the wrong window.
+    if auto_submit_enabled && effective_method != output::OutputMethod::ClipboardOnly {
         let key = auto_submit_key.clone();
         let delay = auto_submit_delay_ms;
         let submit_result = tokio::task::spawn_blocking(move || {
@@ -1002,6 +1021,10 @@ fn open_edit_buffer_window(app: &AppHandle) -> Result<(), String> {
         .focused(true)
         .build()
         .map_err(|e| format!("Failed to create edit buffer window: {e}"))?;
+
+    // Under the macOS Accessory activation policy, `.focused(true)` orders the
+    // window front without activating the app; set_focus activates explicitly.
+    let _ = window.set_focus();
 
     // Handle external close (X button, Cmd+W) — clean up state
     let handle = app.clone();
@@ -1681,20 +1704,45 @@ fn find_active_monitor(app: &AppHandle) -> (f64, f64, f64, f64) {
             }
         }
     };
+    // On macOS/Linux there is no cheap foreground-window rect; the cursor is a
+    // good proxy for which monitor the user is working on.
     #[cfg(not(target_os = "windows"))]
-    let fg_center: Option<(i32, i32)> = None;
+    let fg_center: Option<(i32, i32)> = app
+        .cursor_position()
+        .ok()
+        .map(|p| (p.x as i32, p.y as i32));
 
     // Iterate Tauri's monitors (which use correct per-monitor DPI)
     // and find the one containing the foreground window center point.
     if let Ok(monitors) = app.available_monitors() {
         if let Some((cx, cy)) = fg_center {
+            // Tao derives macOS "physical" coordinates by scaling logical
+            // points: the cursor by the primary monitor's scale, each monitor
+            // rect by its own. Compare in logical space there so mixed-DPI
+            // setups resolve to the right monitor; elsewhere physical
+            // coordinates are already consistent.
+            #[cfg(target_os = "macos")]
+            let cursor_scale = app
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .map(|m| m.scale_factor())
+                .unwrap_or(1.0);
+            #[cfg(not(target_os = "macos"))]
+            let cursor_scale = 1.0;
+            let (cx, cy) = (cx as f64 / cursor_scale, cy as f64 / cursor_scale);
+
             for monitor in &monitors {
+                #[cfg(target_os = "macos")]
+                let rect_scale = monitor.scale_factor();
+                #[cfg(not(target_os = "macos"))]
+                let rect_scale = 1.0;
                 let pos = monitor.position(); // physical pixel origin
                 let size = monitor.size();     // physical pixel size
-                let x0 = pos.x;
-                let y0 = pos.y;
-                let x1 = x0 + size.width as i32;
-                let y1 = y0 + size.height as i32;
+                let x0 = pos.x as f64 / rect_scale;
+                let y0 = pos.y as f64 / rect_scale;
+                let x1 = x0 + size.width as f64 / rect_scale;
+                let y1 = y0 + size.height as f64 / rect_scale;
                 if cx >= x0 && cx < x1 && cy >= y0 && cy < y1 {
                     let scale = monitor.scale_factor();
                     return (
@@ -1785,7 +1833,7 @@ fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
 
     // Try with transparency first; fall back to opaque if WebView2 rejects
     // transparent mode (seen on some Windows 10 builds with older WebView2).
-    let _window = match WebviewWindowBuilder::new(app, "overlay", url.clone())
+    let builder = WebviewWindowBuilder::new(app, "overlay", url.clone())
         .title("EchoType Overlay")
         .inner_size(win_width, win_height)
         .position(x, y)
@@ -1795,16 +1843,19 @@ fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
-        .shadow(false)
-        .build()
-    {
+        .shadow(false);
+    // Follow the user across Spaces, including fullscreen apps.
+    #[cfg(target_os = "macos")]
+    let builder = builder.visible_on_all_workspaces(true);
+
+    let _window = match builder.build() {
         Ok(w) => {
             info!("Overlay window created (transparent)");
             w
         }
         Err(e) => {
             warn!(%e, "Transparent overlay failed, retrying without transparency");
-            WebviewWindowBuilder::new(app, "overlay", url)
+            let fallback = WebviewWindowBuilder::new(app, "overlay", url)
                 .title("EchoType Overlay")
                 .inner_size(win_width, win_height)
                 .position(x, y)
@@ -1812,7 +1863,10 @@ fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
                 .decorations(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .focused(false)
+                .focused(false);
+            #[cfg(target_os = "macos")]
+            let fallback = fallback.visible_on_all_workspaces(true);
+            fallback
                 .build()
                 .map_err(|e2| format!("Failed to create overlay window (fallback): {e2}"))?
         }

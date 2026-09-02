@@ -57,15 +57,34 @@ fn platform_capture_focus() -> Option<FocusTarget> {
 #[cfg(target_os = "macos")]
 fn platform_restore_focus(target: &FocusTarget) -> bool {
     use std::process::Command;
+    use std::time::{Duration, Instant};
 
-    let script = format!("tell application id \"{}\" to activate", target.app_id);
+    // `activate` is asynchronous: it returns before the target app is actually
+    // frontmost (especially across a Space switch). Poll until it is, or text
+    // insertion will type into whatever still holds keyboard focus.
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    loop {
+        if platform_capture_focus().is_some_and(|f| f.app_id == target.app_id) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            warn!(app_id = %target.app_id, "Target app did not become frontmost before deadline");
+            return false;
+        }
 
-    Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        let script = format!("tell application id \"{}\" to activate", target.app_id);
+        let activated = Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !activated {
+            warn!(app_id = %target.app_id, "osascript activate failed");
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 // --- Windows implementation ---
