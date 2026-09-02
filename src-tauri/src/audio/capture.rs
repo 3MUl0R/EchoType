@@ -81,13 +81,26 @@ impl CaptureSession {
             sample_rate: self.sample_rate,
         };
 
+        // Peak/RMS reveal a silently-denied microphone (TCC delivers zeroed
+        // buffers instead of erroring) or a muted/wrong input device.
+        let peak = buf.samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        let rms = if buf.samples.is_empty() {
+            0.0
+        } else {
+            (buf.samples.iter().map(|s| s * s).sum::<f32>() / buf.samples.len() as f32).sqrt()
+        };
         info!(
             sample_rate = self.sample_rate,
             channels = self.channels,
             duration_secs = buf.duration_secs(),
             samples = buf.samples.len(),
+            peak,
+            rms,
             "Capture stopped"
         );
+        if peak == 0.0 && !buf.samples.is_empty() {
+            warn!("Captured audio is pure silence — microphone permission may be denied (macOS delivers zeroed buffers) or the input device is muted");
+        }
 
         buf
     }

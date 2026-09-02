@@ -5,6 +5,6 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>EchoType uses the microphone to transcribe your speech into text.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>EchoType uses System Events to detect Accessibility permission for direct text insertion.</string>
+	<string>EchoType uses System Events to identify the app you are dictating into and to return focus to it before inserting the transcribed text.</string>
 </dict>
 </plist>

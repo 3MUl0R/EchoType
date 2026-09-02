@@ -921,6 +921,20 @@ async fn do_insert(
         );
     }
 
+    // Diagnostic: identify who holds keyboard focus as insertion begins —
+    // synthesized keystrokes go to the key window, which can differ from the
+    // "frontmost" app the focus checks see.
+    {
+        use tauri::Manager;
+        let overlay_focused = app
+            .get_webview_window("overlay")
+            .and_then(|w| w.is_focused().ok());
+        let main_focused = app
+            .get_webview_window("main")
+            .and_then(|w| w.is_focused().ok());
+        tracing::debug!(?overlay_focused, ?main_focused, "Focus state before insertion");
+    }
+
     // Restore focus and insert text in one blocking task (focus restore polls
     // via subprocesses, insertion uses thread::sleep + enigo).
     let insert_start = Instant::now();
@@ -1843,6 +1857,10 @@ fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
+        // A status overlay must never take keyboard focus: on macOS the
+        // window could otherwise become key and swallow the synthesized
+        // keystrokes meant for the app being dictated into.
+        .focusable(false)
         .shadow(false);
     // Follow the user across Spaces, including fullscreen apps.
     #[cfg(target_os = "macos")]
@@ -1863,7 +1881,8 @@ fn create_overlay_window(app: &AppHandle) -> Result<(), String> {
                 .decorations(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .focused(false);
+                .focused(false)
+                .focusable(false);
             #[cfg(target_os = "macos")]
             let fallback = fallback.visible_on_all_workspaces(true);
             fallback

@@ -30,25 +30,67 @@ pub fn restore_focus(target: &FocusTarget) -> bool {
 
 // --- macOS implementation ---
 
+/// Run an AppleScript with a hard timeout, killing osascript if it hangs
+/// (Apple Events to a busy process can block indefinitely). Returns the
+/// trimmed stdout on success, None on failure or timeout.
 #[cfg(target_os = "macos")]
-fn platform_capture_focus() -> Option<FocusTarget> {
-    use std::process::Command;
+fn run_osascript(script: &str, timeout: std::time::Duration) -> Option<String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
 
-    // Use osascript to get the frontmost app bundle ID
-    let output = Command::new("osascript")
+    let mut child = Command::new("osascript")
         .arg("-e")
-        .arg("tell application \"System Events\" to get bundle identifier of first process whose frontmost is true")
-        .output()
+        .arg(script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
 
-    if output.status.success() {
-        let app_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !app_id.is_empty() {
-            return Some(FocusTarget {
-                app_id,
-                id_type: AppIdentifierType::BundleId,
-            });
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                let mut out = String::new();
+                if let Some(mut stdout) = child.stdout.take() {
+                    let _ = stdout.read_to_string(&mut out);
+                }
+                return Some(out.trim().to_string());
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    warn!("osascript timed out; killing");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn platform_capture_focus() -> Option<FocusTarget> {
+    // Use osascript to get the frontmost app bundle ID
+    let app_id = run_osascript(
+        "tell application \"System Events\" to get bundle identifier of first process whose frontmost is true",
+        std::time::Duration::from_millis(1000),
+    )?;
+
+    if !app_id.is_empty() {
+        return Some(FocusTarget {
+            app_id,
+            id_type: AppIdentifierType::BundleId,
+        });
     }
 
     None
@@ -56,14 +98,27 @@ fn platform_capture_focus() -> Option<FocusTarget> {
 
 #[cfg(target_os = "macos")]
 fn platform_restore_focus(target: &FocusTarget) -> bool {
-    use std::process::Command;
     use std::time::{Duration, Instant};
 
-    // `activate` is asynchronous: it returns before the target app is actually
-    // frontmost (especially across a Space switch). Poll until it is, or text
-    // insertion will type into whatever still holds keyboard focus.
+    // Always activate, even when the target already reports frontmost:
+    // "frontmost" is app-level, but keyboard focus (the key window) can sit
+    // elsewhere — activation re-keys the target's window, like the user
+    // clicking back into it. Then poll: `activate` is asynchronous and
+    // returns before the app is actually frontmost (especially across a
+    // Space switch).
     let deadline = Instant::now() + Duration::from_millis(1500);
     loop {
+        let script = format!("tell application id \"{}\" to activate", target.app_id);
+        if run_osascript(&script, Duration::from_millis(1000)).is_none() {
+            warn!(app_id = %target.app_id, "osascript activate failed");
+            return false;
+        }
+
+        // Activation is asynchronous; give the window server time to re-key
+        // the target's window before trusting the frontmost check — an app
+        // can report frontmost while its window is not yet key again.
+        std::thread::sleep(Duration::from_millis(100));
+
         if platform_capture_focus().is_some_and(|f| f.app_id == target.app_id) {
             return true;
         }
@@ -71,19 +126,6 @@ fn platform_restore_focus(target: &FocusTarget) -> bool {
             warn!(app_id = %target.app_id, "Target app did not become frontmost before deadline");
             return false;
         }
-
-        let script = format!("tell application id \"{}\" to activate", target.app_id);
-        let activated = Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if !activated {
-            warn!(app_id = %target.app_id, "osascript activate failed");
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
